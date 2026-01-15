@@ -1,0 +1,22 @@
+﻿
+      <html>
+      <head><title>Policy Schedule</title></head>
+      <body style="font-family: Arial, sans-serif;">
+        <h1 style="color: #2563eb;">Majeng Life Insurance Co.</h1>
+        <h2>Policy Schedule - Draft</h2>
+        <p><strong>Date:</strong> 09/01/2026</p>
+        
+        <h3>1. Policyholder Details</h3>
+        <p><strong>Name:</strong> Jan van Wyk</p>
+        <p><strong>ID Number:</strong> 9109035089085</p>
+        <p><strong>Age at Entry:</strong> 34</p>
+        <p><strong>Gender:</strong> Male</p>
+        <p><strong>Smoker Status:</strong> No</p>
+        
+        <h3>2. Premium Summary</h3>
+        <p><strong>Monthly Premium:</strong> R 809.23</p>
+        <p><strong>Annual Premium:</strong> R 9710.77</p>
+        <p><strong>Risk Category:</strong> Low</p>
+      </body>
+      </html>
+    

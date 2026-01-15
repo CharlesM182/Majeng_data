@@ -1,0 +1,16 @@
+-- 1. Create Users Table
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL, -- We store the HASH, not the password
+    role VARCHAR(20) DEFAULT 'agent', -- admin, underwriter, agent
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. Create Audit Log (To see who did what)
+CREATE TABLE audit_logs (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id),
+    action VARCHAR(100), -- e.g., "Login Failed", "Policy Created"
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

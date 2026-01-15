@@ -1,0 +1,10 @@
+-- 1. Create the Notes Table
+CREATE TABLE complaint_note (
+    note_id UUID PRIMARY KEY,
+    complaint_id UUID REFERENCES complaint(complaint_id),
+    note_text TEXT,
+    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+);
+
+-- 2. Index for speed
+CREATE INDEX idx_complaint_notes ON complaint_note(complaint_id);

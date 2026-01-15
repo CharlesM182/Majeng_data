@@ -1,0 +1,47 @@
+-- 1. Create Policies Table
+CREATE TABLE policies (
+    id SERIAL PRIMARY KEY,
+    policy_number VARCHAR(50) UNIQUE NOT NULL,
+    applicant_name VARCHAR(100) NOT NULL,
+    id_number VARCHAR(20),
+    age INT,
+    smoker BOOLEAN,
+    medical_history TEXT,
+    coverage NUMERIC(12, 2), -- Handles currency better than float
+    premium NUMERIC(10, 2),
+    term_years INT,
+    risk_factor VARCHAR(20),
+    status VARCHAR(20) DEFAULT 'Pending Doc',
+    inception_date DATE,
+    paid_until DATE,
+    policy_doc_url TEXT, -- Link to the file (we will build file storage later)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. Create Claims Table
+CREATE TABLE claims (
+    id SERIAL PRIMARY KEY,
+    claim_number VARCHAR(50) UNIQUE NOT NULL,
+    policy_id VARCHAR(50) REFERENCES policies(policy_number), -- Links to policy
+    claimant_name VARCHAR(100),
+    amount NUMERIC(12, 2),
+    reason TEXT,
+    status VARCHAR(20) DEFAULT 'Pending',
+    date_filed DATE,
+    settlement_form_url TEXT,
+    rejection_reason TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 3. Create Complaints Table
+CREATE TABLE complaints (
+    id SERIAL PRIMARY KEY,
+    ticket_number VARCHAR(50) UNIQUE NOT NULL,
+    policy_id VARCHAR(50), -- Loose link allows complaints even if policy not found
+    customer_name VARCHAR(100),
+    subject VARCHAR(200),
+    priority VARCHAR(10),
+    status VARCHAR(20) DEFAULT 'Open',
+    date_logged DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

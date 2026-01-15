@@ -1,0 +1,26 @@
+-- 1. Create the Users table (if it doesn't exist yet)
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL, -- Storing plain text for now as per your request
+    role VARCHAR(20) DEFAULT 'agent', -- options: admin, underwriter, agent
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. Insert the Admin User
+-- This matches the hardcoded credentials you wanted
+INSERT INTO users (username, password_hash, role)
+VALUES ('Admin', '1234', 'admin')
+ON CONFLICT (username) DO NOTHING; -- Prevents errors if you run this twice
+
+-- 3. (Optional) Create other roles for testing
+INSERT INTO users (username, password_hash, role)
+VALUES ('Sarah', '1234', 'underwriter')
+ON CONFLICT (username) DO NOTHING;
+
+INSERT INTO users (username, password_hash, role)
+VALUES ('Mike', '1234', 'agent')
+ON CONFLICT (username) DO NOTHING;
+
+-- 4. Check if it worked
+SELECT * FROM users;
