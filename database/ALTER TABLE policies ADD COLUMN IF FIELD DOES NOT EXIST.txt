@@ -1,0 +1,12 @@
+ALTER TABLE policies ADD COLUMN IF NOT EXISTS gender VARCHAR(10);
+ALTER TABLE policies ADD COLUMN IF NOT EXISTS beneficiary_name VARCHAR(100);
+ALTER TABLE policies ADD COLUMN IF NOT EXISTS beneficiary_id VARCHAR(20);
+ALTER TABLE policies ADD COLUMN IF NOT EXISTS beneficiary_phone VARCHAR(20);
+ALTER TABLE policies ADD COLUMN IF NOT EXISTS beneficiary_email VARCHAR(100);
+
+### Step 3: Restart the Server
+1.  Go to the command prompt running `node server.js`.
+2.  Press **`Ctrl + C`**.
+3.  Run **`node server.js`** again.
+
+This will fix the "Too Many Requests" error and ensure your new beneficiary data is saved correctly.

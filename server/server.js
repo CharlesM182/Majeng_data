@@ -4,23 +4,24 @@ const { Pool } = require('pg');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const jwt = require('jsonwebtoken'); // NEW: For Security Tokens
-const rateLimit = require('express-rate-limit'); // NEW: For Brute Force Protection
+const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const app = express();
 const port = process.env.PORT || 3000;
-const JWT_SECRET = "super_secret_majeng_key_123"; // In production, keep this in .env
+const JWT_SECRET = "super_secret_majeng_key_123"; 
 
 // 1. Middleware
 app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// 2. Security: Rate Limiting (Block IP after 100 requests in 15 mins)
+// 2. Security: Rate Limiting (RELAXED LIMITS)
+// Increased to 2000 to allow for auto-refreshing frontend
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, 
-  max: 100, 
+  max: 2000, 
   message: "Too many requests from this IP, please try again after 15 minutes"
 });
 app.use(limiter);
@@ -46,48 +47,28 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-// --- AUTHENTICATION ROUTES (NEW) ---
+// --- AUTHENTICATION ROUTES ---
 
-// Login Endpoint
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
-
   try {
-    // 1. Check if user exists
     const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
-    
-    if (result.rows.length === 0) {
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
+    if (result.rows.length === 0) return res.status(401).json({ error: "Invalid credentials" });
 
     const user = result.rows[0];
+    if (password !== user.password_hash) return res.status(401).json({ error: "Invalid credentials" });
 
-    // 2. Verify Password (Plain text check as requested)
-    // WARNING: In a real production app, use bcrypt here.
-    if (password !== user.password_hash) { // Assuming 'password_hash' column holds plain text for now
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
-
-    // 3. Generate Token (JWT Session)
-    const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role },
-      JWT_SECRET,
-      { expiresIn: '8h' } // Session expires in 8 hours
-    );
-
-    // 4. Log the action
+    const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
     await pool.query('INSERT INTO audit_logs (user_id, action) VALUES ($1, $2)', [user.id, 'User Logged In']);
 
-    // 5. Send back token and role
     res.json({ token, role: user.role, username: user.username });
-
   } catch (err) {
     console.error(err);
     res.status(500).send('Server Error');
   }
 });
 
-// --- EXISTING DATA ROUTES ---
+// --- DATA ROUTES ---
 
 // File Upload
 app.post('/api/upload', upload.single('file'), (req, res) => {
@@ -104,15 +85,43 @@ app.get('/api/policies', async (req, res) => {
   } catch (err) { res.status(500).send('Server Error'); }
 });
 
+// UPDATED: Now saves Beneficiary Details
 app.post('/api/policies', async (req, res) => {
-  const { name, idNumber, age, smoker, coverage, premium, status, inceptionDate, paidUntil, riskFactor } = req.body;
+  const { 
+    name, idNumber, age, smoker, coverage, premium, status, 
+    inceptionDate, paidUntil, riskFactor, gender, beneficiary 
+  } = req.body;
+  
   const policyNum = `POL-${Math.floor(1000 + Math.random() * 9000)}`;
+
+  // Extract beneficiary details safely
+  const benName = beneficiary ? beneficiary.name : null;
+  const benId = beneficiary ? beneficiary.id : null;
+  const benPhone = beneficiary ? beneficiary.phone : null;
+  const benEmail = beneficiary ? beneficiary.email : null;
+
   try {
-    const query = `INSERT INTO policies (policy_number, applicant_name, id_number, age, smoker, coverage, premium, risk_factor, status, inception_date, paid_until) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`;
-    const values = [policyNum, name, idNumber, age, smoker, coverage, premium, riskFactor, status, inceptionDate, paidUntil];
+    const query = `
+      INSERT INTO policies (
+        policy_number, applicant_name, id_number, age, smoker, coverage, premium, 
+        risk_factor, status, inception_date, paid_until, gender,
+        beneficiary_name, beneficiary_id, beneficiary_phone, beneficiary_email
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+      RETURNING *
+    `;
+    const values = [
+      policyNum, name, idNumber, age, smoker, coverage, premium, 
+      riskFactor, status, inceptionDate, paidUntil, gender,
+      benName, benId, benPhone, benEmail
+    ];
+    
     const result = await pool.query(query, values);
     res.json(result.rows[0]);
-  } catch (err) { res.status(500).send(err.message); }
+  } catch (err) { 
+    console.error(err);
+    res.status(500).send(err.message); 
+  }
 });
 
 app.patch('/api/policies/:id', async (req, res) => {
