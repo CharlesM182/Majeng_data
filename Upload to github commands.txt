@@ -1,0 +1,11 @@
+cd C:\Majeng-System
+3.  Run these commands one by one:
+
+```cmd
+git add .
+
+```cmd
+git commit -m "Update server logic and database schema for beneficiaries"
+
+```cmd
+git push origin main

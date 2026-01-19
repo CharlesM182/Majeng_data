@@ -15,8 +15,7 @@ import {
   Upload, 
   RefreshCw,
   Lock,
-  LogOut,
-  ClipboardList // Added icon for Audit Log
+  LogOut
 } from 'lucide-react';
 
 // --- IMPORT YOUR EXTERNAL MODULES ---
@@ -46,26 +45,12 @@ const LoginScreen = ({ onLogin }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
-    setError('');
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        onLogin(data); // data now includes .id, .username, .role
-      } else {
-        setError(data.error || 'Invalid credentials');
-      }
-    } catch (err) {
-      setError('Cannot connect to server.');
+    if (username === 'Admin' && password === '1234') {
+      onLogin({ username: 'Admin', role: 'admin' });
+    } else {
+      setError('Invalid username or password');
     }
   };
 
@@ -104,72 +89,21 @@ const LoginScreen = ({ onLogin }) => {
             />
           </div>
           
-          {error && <div className="bg-red-50 text-red-600 text-sm p-2 rounded text-center border border-red-100">{error}</div>}
+          {error && (
+            <div className="bg-red-50 text-red-600 text-sm p-2 rounded text-center border border-red-100">
+              {error}
+            </div>
+          )}
 
-          <button type="submit" className="w-full bg-indigo-600 text-white py-2 rounded-md hover:bg-indigo-700 transition font-medium">Login</button>
+          <button 
+            type="submit" 
+            className="w-full bg-indigo-600 text-white py-2 rounded-md hover:bg-indigo-700 transition font-medium"
+          >
+            Login
+          </button>
         </form>
-      </div>
-    </div>
-  );
-};
-
-// --- AUDIT LOG MODULE ---
-const AuditLogModule = () => {
-  const [logs, setLogs] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchLogs = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/audit-logs`);
-        if (response.ok) {
-          const data = await response.json();
-          setLogs(data);
-        }
-      } catch (error) {
-        console.error("Failed to fetch audit logs", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchLogs();
-  }, []);
-
-  return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-bold flex items-center text-slate-800">
-          <ClipboardList className="mr-2 text-indigo-600" /> System Audit Logs
-        </h2>
-      </div>
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 border-b text-slate-600 uppercase text-xs font-bold">
-              <tr>
-                <th className="p-4">Timestamp</th>
-                <th className="p-4">User</th>
-                <th className="p-4">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {loading ? (
-                 <tr><td colSpan="3" className="p-6 text-center text-slate-500">Loading logs...</td></tr>
-              ) : logs.length === 0 ? (
-                 <tr><td colSpan="3" className="p-6 text-center text-slate-500">No activity recorded.</td></tr>
-              ) : (
-                logs.map((log) => (
-                  <tr key={log.id} className="hover:bg-slate-50">
-                    <td className="p-4 font-mono text-xs text-slate-500">
-                      {new Date(log.timestamp).toLocaleString()}
-                    </td>
-                    <td className="p-4 font-medium text-slate-800">{log.username || `User #${log.user_id}`}</td>
-                    <td className="p-4 text-slate-600">{log.action}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+        <div className="mt-6 text-center text-xs text-slate-400">
+          Authorized personnel only.
         </div>
       </div>
     </div>
@@ -254,6 +188,7 @@ const PolicyValuesModule = ({ policies }) => {
                     </button>
                 </div>
             </div>
+
             {projection && (
                 <div className="bg-white rounded-lg shadow-sm overflow-hidden border">
                     <div className="p-4 bg-purple-50 border-b border-purple-100 flex justify-between items-center">
@@ -263,12 +198,22 @@ const PolicyValuesModule = ({ policies }) => {
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm">
                             <thead className="bg-slate-50 text-slate-600 uppercase text-xs">
-                                <tr><th className="p-3">Year (t)</th><th className="p-3">Age</th><th className="p-3">Term Remaining</th><th className="p-3 text-right">Policy Value E(L)</th></tr>
+                                <tr>
+                                    <th className="p-3">Year (t)</th>
+                                    <th className="p-3">Age</th>
+                                    <th className="p-3">Term Remaining</th>
+                                    <th className="p-3 text-right">Policy Value E(L)</th>
+                                </tr>
                             </thead>
                             <tbody className="divide-y">
                                 {projection.results.map((row) => (
                                     <tr key={row.year} className="hover:bg-slate-50">
-                                        <td className="p-3 font-mono">{row.year}</td><td className="p-3">{row.age}</td><td className="p-3">{row.termRemaining}</td><td className={`p-3 text-right font-mono font-bold ${row.policyValue >= 0 ? 'text-green-600' : 'text-red-600'}`}>R {row.policyValue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                                        <td className="p-3 font-mono">{row.year}</td>
+                                        <td className="p-3">{row.age}</td>
+                                        <td className="p-3">{row.termRemaining}</td>
+                                        <td className={`p-3 text-right font-mono font-bold ${row.policyValue >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                            R {row.policyValue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -347,7 +292,9 @@ const AdminModule = ({ policies, onUploadPolicy, onUpdateStatus }) => {
                     <td className="p-4">
                         {policy.status === 'Pending Doc' && (
                             <div className="relative">
-                                {uploadingId === policy.id ? (<span className="text-xs font-bold text-blue-600 animate-pulse">Uploading...</span>) : (
+                                {uploadingId === policy.id ? (
+                                    <span className="text-xs font-bold text-blue-600 animate-pulse">Uploading...</span>
+                                ) : (
                                     <>
                                         <input 
                                             type="file" 
@@ -355,13 +302,25 @@ const AdminModule = ({ policies, onUploadPolicy, onUpdateStatus }) => {
                                             className="hidden" 
                                             onChange={(e) => handleFileChange(e, policy.id)}
                                         />
-                                        <label htmlFor={`file-upload-${policy.id}`} className="flex items-center text-xs bg-indigo-50 text-indigo-600 border border-indigo-200 px-3 py-1 rounded hover:bg-indigo-100 cursor-pointer"><Upload className="w-3 h-3 mr-1" /> Upload</label>
+                                        <label 
+                                            htmlFor={`file-upload-${policy.id}`}
+                                            className="flex items-center text-xs bg-indigo-50 text-indigo-600 border border-indigo-200 px-3 py-1 rounded hover:bg-indigo-100 cursor-pointer"
+                                        >
+                                            <Upload className="w-3 h-3 mr-1" /> Upload
+                                        </label>
                                     </>
                                 )}
                             </div>
                         )}
                         {policy.status === 'Active' && policy.policyDocumentUrl && (
-                             <a href={policy.policyDocumentUrl} target="_blank" rel="noopener noreferrer" className="flex items-center text-xs text-blue-600 hover:text-blue-800 font-medium"><FileText className="w-3 h-3 mr-1" /> View Doc</a>
+                             <a 
+                                href={policy.policyDocumentUrl} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="flex items-center text-xs text-blue-600 hover:text-blue-800 font-medium"
+                             >
+                                <FileText className="w-3 h-3 mr-1" /> View Doc
+                             </a>
                         )}
                         {policy.status === 'Active' && !policy.policyDocumentUrl && (
                              <span className="text-xs text-slate-400 italic">No Doc</span>
@@ -381,6 +340,7 @@ const AdminModule = ({ policies, onUploadPolicy, onUpdateStatus }) => {
   );
 };
 
+// UPDATED CLAIMS MODULE
 const ClaimsModule = ({ claims, policies, onAddClaim, onUpdateClaimStatus }) => {
   const [newClaim, setNewClaim] = useState({ policyId: '' });
   const [showForm, setShowForm] = useState(false);
@@ -427,7 +387,23 @@ const ClaimsModule = ({ claims, policies, onAddClaim, onUpdateClaimStatus }) => 
         {claims.map(claim => (
           <div key={claim.id} className="bg-white rounded-lg shadow-sm border-l-4 border-l-indigo-500 overflow-hidden">
             <div className="p-4 flex flex-col md:flex-row justify-between items-start md:items-center">
-                <div><h4 className="text-lg font-bold mt-1">R {claim.amount.toLocaleString()} - {claim.claimant}</h4><p className="text-sm text-slate-600">{claim.reason}</p></div>
+                <div>
+                  <h4 className="text-lg font-bold mt-1">R {claim.amount.toLocaleString()} - {claim.claimant}</h4>
+                  <p className="text-sm text-slate-600">{claim.reason}</p>
+                  
+                  {/* --- NEW ADDITION: View Settlement Form Link --- */}
+                  {claim.settlementFormUrl && (
+                    <a 
+                      href={claim.settlementFormUrl} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center text-xs text-blue-600 hover:text-blue-800 font-medium mt-1"
+                    >
+                      <FileText className="w-3 h-3 mr-1" /> View Settlement Form
+                    </a>
+                  )}
+                  {/* ------------------------------------------- */}
+                </div>
                 <div className="mt-4 md:mt-0 flex items-center space-x-3">{claim.status === 'Pending' ? (<><button onClick={() => initiateAction(claim.id, 'Approve')} className="text-green-600"><CheckCircle className="w-6 h-6" /></button><button onClick={() => initiateAction(claim.id, 'Reject')} className="text-red-600"><XCircle className="w-6 h-6" /></button></>) : (<span className="px-3 py-1 rounded-full font-bold text-sm bg-slate-100 text-slate-800">{claim.status}</span>)}</div>
             </div>
             {actionClaimId === claim.id && claim.status === 'Pending' && (
@@ -512,11 +488,11 @@ const App = () => {
     }
   }, [isLoggedIn]);
 
-  // LOGIN HANDLER
+  // LOGIN HANDLER UPDATED to save user details
   const handleLogin = (userData) => {
     setIsLoggedIn(true);
     setCurrentUser(userData);
-    setActiveTab('dashboard'); 
+    setActiveTab('dashboard'); // Reset to dashboard on login
   };
 
   // 2. HANDLERS
@@ -525,7 +501,7 @@ const App = () => {
       await fetch(`${API_BASE_URL}/policies`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...policy, userId: currentUser?.id }) // Add ID for Audit
+        body: JSON.stringify(policy)
       });
       setActiveTab('admin');
       alert("Policy successfully saved to Database.");
@@ -540,7 +516,7 @@ const App = () => {
         await fetch(`${API_BASE_URL}/policies/${id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: newStatus, userId: currentUser?.id }) // Add ID for Audit
+            body: JSON.stringify({ status: newStatus })
         });
         refreshData();
     } catch (e) {
@@ -560,7 +536,7 @@ const App = () => {
         await fetch(`${API_BASE_URL}/policies/${id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'Active', policy_doc_url: url, userId: currentUser?.id }) // Add ID for Audit
+            body: JSON.stringify({ status: 'Active', policy_doc_url: url })
         });
         
         alert("Policy Activated and Document Saved Securely!");
@@ -582,7 +558,7 @@ const App = () => {
         await fetch(`${API_BASE_URL}/policies/${id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ paid_until: nextDateStr, userId: currentUser?.id }) // Add ID for Audit
+            body: JSON.stringify({ paid_until: nextDateStr }) 
         });
         
         alert(`Payment Processed successfully.\nNew Paid Until Date: ${nextDateStr}`);
@@ -597,7 +573,7 @@ const App = () => {
     await fetch(`${API_BASE_URL}/claims`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...claim, userId: currentUser?.id }) // Add ID for Audit
+      body: JSON.stringify(claim)
     });
     refreshData();
   };
@@ -606,7 +582,7 @@ const App = () => {
     await fetch(`${API_BASE_URL}/complaints`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...complaint, userId: currentUser?.id }) // Add ID for Audit
+        body: JSON.stringify(complaint)
     });
     refreshData();
   };
@@ -627,7 +603,7 @@ const App = () => {
         }
     }
 
-    const payload = { status, userId: currentUser?.id }; // Add ID for Audit
+    const payload = { status };
     if (reason) payload.rejection_reason = reason;
     if (settlementUrl) payload.settlement_form_url = settlementUrl;
 
@@ -640,11 +616,11 @@ const App = () => {
     if (status === 'Approved') {
         const claim = claims.find(c => c.id === id);
         if (claim && claim.policyId) {
-             // SET STATUS TO SETTLED
+             // SET STATUS TO SETTLED (Moves to Archive)
              await fetch(`${API_BASE_URL}/policies/${claim.policyId}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: 'Settled', userId: currentUser?.id }) // Add ID for Audit
+                body: JSON.stringify({ status: 'Settled' })
             });
         }
     }
@@ -655,7 +631,7 @@ const App = () => {
       await fetch(`${API_BASE_URL}/complaints/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'Resolved', userId: currentUser?.id }) // Add ID for Audit
+        body: JSON.stringify({ status: 'Resolved' })
     });
     refreshData();
   };
@@ -671,7 +647,6 @@ const App = () => {
       case 'premium': 
         return <PremiumModule policies={policies} onProcessPayment={handleProcessPayment} />;
       case 'complaints': return <ComplaintsModule complaints={complaints} policies={policies} onResolveComplaint={handleResolveComplaint} onAddComplaint={handleAddComplaint} />;
-      case 'audit': return <AuditLogModule />;
       default: return (
         <div className="grid grid-cols-1 gap-6">
           <div className="bg-white p-6 rounded shadow">
@@ -685,7 +660,11 @@ const App = () => {
   };
 
   const NavItem = ({ id, label, icon: Icon, allowedRoles }) => {
-    const userRole = currentUser?.role || 'agent'; 
+    // RBAC: Check if current user role is in the list of allowed roles for this tab
+    // If no roles specified, assume public/all
+    const userRole = currentUser?.role || 'agent'; // default to agent if undefined
+    
+    // Admin sees everything
     if (userRole === 'admin') {
       return (
         <button onClick={() => { setActiveTab(id); setIsMobileMenuOpen(false); }} className={`w-full flex items-center p-3 rounded-lg mb-1 ${activeTab === id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}>
@@ -693,7 +672,11 @@ const App = () => {
         </button>
       );
     }
-    if (allowedRoles && !allowedRoles.includes(userRole)) return null;
+
+    // Check specific roles
+    if (allowedRoles && !allowedRoles.includes(userRole)) {
+      return null; // Render nothing if not allowed
+    }
 
     return (
       <button onClick={() => { setActiveTab(id); setIsMobileMenuOpen(false); }} className={`w-full flex items-center p-3 rounded-lg mb-1 ${activeTab === id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}>
@@ -727,9 +710,6 @@ const App = () => {
           
           <NavItem id="claims" label="Claims" icon={AlertCircle} allowedRoles={['agent']} />
           <NavItem id="complaints" label="Complaints" icon={CheckCircle} allowedRoles={['agent']} />
-          
-          <div className="my-4 border-t border-slate-100"></div>
-          <NavItem id="audit" label="Audit Logs" icon={ClipboardList} allowedRoles={['admin']} />
         </nav>
         <div className="p-4 border-t bg-slate-50">
              <div className="flex items-center">
