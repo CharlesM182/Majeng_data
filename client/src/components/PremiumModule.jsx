@@ -1,12 +1,18 @@
 import React, { useState } from 'react';
-import { Search, DollarSign, FileText, CheckCircle, X, ChevronRight } from 'lucide-react';
+import { Search, DollarSign, FileText, CheckCircle, X, ArrowUpRight, ArrowDownLeft, Calendar } from 'lucide-react';
 import { calculateNextDueDate, generateAccountStatement } from '../utils/paymentLogic';
 
 const PremiumModule = ({ policies, onProcessPayment }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [statementPolicy, setStatementPolicy] = useState(null); // The policy currently showing a statement
+  const [statementPolicy, setStatementPolicy] = useState(null);
+  
+  // Payment Modal State
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [paymentPolicy, setPaymentPolicy] = useState(null);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentDate, setPaymentDate] = useState('');
 
-  // 1. Filter Policies: Must be Active AND match search term
+  // Filter Active Policies
   const activePolicies = policies.filter(p => p.status === 'Active');
   
   const filteredPolicies = activePolicies.filter(p => 
@@ -15,7 +21,23 @@ const PremiumModule = ({ policies, onProcessPayment }) => {
     (p.idNumber && p.idNumber.includes(searchTerm))
   );
 
-  // 2. Generate Statement Data (only if a policy is selected)
+  const openPaymentModal = (policy) => {
+      setPaymentPolicy(policy);
+      setPaymentAmount(policy.premium); // Default to premium amount
+      setPaymentDate(new Date().toISOString().split('T')[0]); // Default to today
+      setPaymentModalOpen(true);
+  };
+
+  const handleConfirmPayment = () => {
+      if (!paymentPolicy || !paymentAmount || !paymentDate) return;
+      
+      // Pass the specific details to the parent handler
+      onProcessPayment(paymentPolicy.id, parseFloat(paymentAmount), paymentDate);
+      
+      setPaymentModalOpen(false);
+      setPaymentPolicy(null);
+  };
+
   const statementData = statementPolicy ? generateAccountStatement(statementPolicy) : [];
 
   return (
@@ -77,16 +99,16 @@ const PremiumModule = ({ policies, onProcessPayment }) => {
                                 </td>
                                 <td className="p-4 flex justify-center gap-2">
                                     <button 
-                                        onClick={() => onProcessPayment(policy.id)}
+                                        onClick={() => openPaymentModal(policy)}
                                         className="bg-green-600 text-white px-3 py-1.5 rounded text-xs hover:bg-green-700 flex items-center shadow-sm"
-                                        title="Pay 1 Month"
+                                        title="Capture Payment"
                                     >
                                         <DollarSign className="w-3 h-3 mr-1" /> Pay
                                     </button>
                                     <button 
                                         onClick={() => setStatementPolicy(policy)}
                                         className="bg-white text-slate-600 border border-slate-300 px-3 py-1.5 rounded text-xs hover:bg-slate-50 flex items-center shadow-sm"
-                                        title="View Statement"
+                                        title="View Account Statement"
                                     >
                                         <FileText className="w-3 h-3 mr-1" /> Statement
                                     </button>
@@ -101,7 +123,52 @@ const PremiumModule = ({ policies, onProcessPayment }) => {
         </div>
       )}
 
-      {/* STATEMENT MODAL / VIEW */}
+      {/* PAYMENT MODAL */}
+      {paymentModalOpen && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+                  <div className="p-4 border-b bg-green-50 flex justify-between items-center">
+                      <h3 className="font-bold text-green-800 flex items-center"><DollarSign className="w-4 h-4 mr-2"/> Capture Payment</h3>
+                      <button onClick={() => setPaymentModalOpen(false)}><X className="w-5 h-5 text-green-600 hover:text-green-800"/></button>
+                  </div>
+                  <div className="p-6 space-y-4">
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Payment Date</label>
+                          <div className="relative">
+                            <Calendar className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                            <input 
+                                type="date" 
+                                className="w-full border rounded p-2 pl-10"
+                                value={paymentDate}
+                                onChange={(e) => setPaymentDate(e.target.value)}
+                            />
+                          </div>
+                      </div>
+                      <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Amount (R)</label>
+                          <input 
+                              type="number" 
+                              className="w-full border rounded p-2 text-lg font-bold text-green-700"
+                              value={paymentAmount}
+                              onChange={(e) => setPaymentAmount(e.target.value)}
+                          />
+                      </div>
+                      <div className="bg-slate-50 p-3 rounded text-xs text-slate-500 border border-slate-100">
+                          Recording payment for <strong>{paymentPolicy?.name}</strong> ({paymentPolicy?.id}). <br/>
+                          Standard premium is R {paymentPolicy?.premium}.
+                      </div>
+                      <button 
+                          onClick={handleConfirmPayment}
+                          className="w-full bg-green-600 text-white py-3 rounded hover:bg-green-700 font-bold shadow-sm transition-colors"
+                      >
+                          Confirm Payment
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* ACCOUNT STATEMENT VIEW */}
       {statementPolicy && (
         <div className="bg-white rounded-lg shadow-lg border border-indigo-100 overflow-hidden animation-fade-in">
             <div className="p-4 bg-indigo-50 border-b border-indigo-100 flex justify-between items-center">
@@ -109,7 +176,7 @@ const PremiumModule = ({ policies, onProcessPayment }) => {
                     <h3 className="font-bold text-indigo-900 flex items-center">
                         <FileText className="w-4 h-4 mr-2"/> Account Statement: {statementPolicy.name}
                     </h3>
-                    <p className="text-xs text-indigo-700 mt-1">Policy: {statementPolicy.id} | Premium: R {statementPolicy.premium}</p>
+                    <p className="text-xs text-indigo-700 mt-1">Policy: {statementPolicy.id} | Monthly Premium: R {statementPolicy.premium}</p>
                 </div>
                 <button 
                     onClick={() => setStatementPolicy(null)} 
@@ -119,29 +186,29 @@ const PremiumModule = ({ policies, onProcessPayment }) => {
                 </button>
             </div>
             
-            <div className="max-h-[400px] overflow-y-auto">
+            <div className="max-h-[500px] overflow-y-auto">
                 <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-50 border-b sticky top-0">
+                    <thead className="bg-slate-50 border-b sticky top-0 z-10">
                         <tr>
-                            <th className="p-3">Due Date</th>
+                            <th className="p-3 w-32">Date</th>
                             <th className="p-3">Description</th>
-                            <th className="p-3">Amount</th>
-                            <th className="p-3">Status</th>
+                            <th className="p-3 text-right">Debit / Credit</th>
+                            <th className="p-3 text-right">Balance</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y">
                         {statementData.map((row, index) => (
                             <tr key={index} className="hover:bg-slate-50">
-                                <td className="p-3 font-mono text-slate-600">{row.date}</td>
-                                <td className="p-3 text-slate-700">Monthly Premium</td>
-                                <td className="p-3 font-medium">R {row.amount}</td>
-                                <td className="p-3">
-                                    <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wide ${
-                                        row.status === 'Paid' ? 'bg-green-100 text-green-700' : 
-                                        row.status === 'Overdue' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
-                                    }`}>
-                                        {row.status}
-                                    </span>
+                                <td className="p-3 font-mono text-slate-600 text-xs">{row.date}</td>
+                                <td className="p-3 text-slate-700 flex items-center">
+                                    {row.isCredit ? <ArrowDownLeft className="w-3 h-3 text-green-500 mr-2"/> : <ArrowUpRight className="w-3 h-3 text-orange-500 mr-2"/>}
+                                    {row.description}
+                                </td>
+                                <td className={`p-3 text-right font-medium ${row.isCredit ? 'text-green-600' : 'text-orange-600'}`}>
+                                    {row.isCredit ? '-' : ''} R {Math.abs(row.amount).toFixed(2)}
+                                </td>
+                                <td className={`p-3 text-right font-bold ${row.balance > 0 ? 'text-red-600' : 'text-slate-700'}`}>
+                                    R {row.balance.toFixed(2)}
                                 </td>
                             </tr>
                         ))}

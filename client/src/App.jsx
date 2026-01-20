@@ -16,9 +16,10 @@ import {
   RefreshCw,
   Lock,
   LogOut,
-  X,            // <--- ADDED THIS (Fixes the crash)
-  MessageSquare,// <--- Ensure this is here
-  Paperclip     // <--- Ensure this is here
+  ClipboardList,
+  MessageSquare,
+  Paperclip,
+  X // Required for the close button in modals
 } from 'lucide-react';
 
 // --- IMPORT YOUR EXTERNAL MODULES ---
@@ -48,12 +49,26 @@ const LoginScreen = ({ onLogin }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (username === 'Admin' && password === '1234') {
-      onLogin({ username: 'Admin', role: 'admin' });
-    } else {
-      setError('Invalid username or password');
+    setError('');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        onLogin(data);
+      } else {
+        setError(data.error || 'Invalid credentials');
+      }
+    } catch (err) {
+      setError('Cannot connect to server.');
     }
   };
 
@@ -92,21 +107,72 @@ const LoginScreen = ({ onLogin }) => {
             />
           </div>
           
-          {error && (
-            <div className="bg-red-50 text-red-600 text-sm p-2 rounded text-center border border-red-100">
-              {error}
-            </div>
-          )}
+          {error && <div className="bg-red-50 text-red-600 text-sm p-2 rounded text-center border border-red-100">{error}</div>}
 
-          <button 
-            type="submit" 
-            className="w-full bg-indigo-600 text-white py-2 rounded-md hover:bg-indigo-700 transition font-medium"
-          >
-            Login
-          </button>
+          <button type="submit" className="w-full bg-indigo-600 text-white py-2 rounded-md hover:bg-indigo-700 transition font-medium">Login</button>
         </form>
-        <div className="mt-6 text-center text-xs text-slate-400">
-          Authorized personnel only.
+      </div>
+    </div>
+  );
+};
+
+// --- AUDIT LOG MODULE ---
+const AuditLogModule = () => {
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchLogs = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/audit-logs`);
+        if (response.ok) {
+          const data = await response.json();
+          setLogs(data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch audit logs", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchLogs();
+  }, []);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-bold flex items-center text-slate-800">
+          <ClipboardList className="mr-2 text-indigo-600" /> System Audit Logs
+        </h2>
+      </div>
+      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-slate-50 border-b text-slate-600 uppercase text-xs font-bold">
+              <tr>
+                <th className="p-4">Timestamp</th>
+                <th className="p-4">User</th>
+                <th className="p-4">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {loading ? (
+                 <tr><td colSpan="3" className="p-6 text-center text-slate-500">Loading logs...</td></tr>
+              ) : logs.length === 0 ? (
+                 <tr><td colSpan="3" className="p-6 text-center text-slate-500">No activity recorded.</td></tr>
+              ) : (
+                logs.map((log) => (
+                  <tr key={log.id} className="hover:bg-slate-50">
+                    <td className="p-4 font-mono text-xs text-slate-500">
+                      {new Date(log.timestamp).toLocaleString()}
+                    </td>
+                    <td className="p-4 font-medium text-slate-800">{log.username || `User #${log.user_id}`}</td>
+                    <td className="p-4 text-slate-600">{log.action}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -191,7 +257,6 @@ const PolicyValuesModule = ({ policies }) => {
                     </button>
                 </div>
             </div>
-
             {projection && (
                 <div className="bg-white rounded-lg shadow-sm overflow-hidden border">
                     <div className="p-4 bg-purple-50 border-b border-purple-100 flex justify-between items-center">
@@ -201,12 +266,7 @@ const PolicyValuesModule = ({ policies }) => {
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm">
                             <thead className="bg-slate-50 text-slate-600 uppercase text-xs">
-                                <tr>
-                                    <th className="p-3">Year (t)</th>
-                                    <th className="p-3">Age</th>
-                                    <th className="p-3">Term Remaining</th>
-                                    <th className="p-3 text-right">Policy Value E(L)</th>
-                                </tr>
+                                <tr><th className="p-3">Year (t)</th><th className="p-3">Age</th><th className="p-3">Term Remaining</th><th className="p-3 text-right">Policy Value E(L)</th></tr>
                             </thead>
                             <tbody className="divide-y">
                                 {projection.results.map((row) => (
@@ -214,9 +274,7 @@ const PolicyValuesModule = ({ policies }) => {
                                         <td className="p-3 font-mono">{row.year}</td>
                                         <td className="p-3">{row.age}</td>
                                         <td className="p-3">{row.termRemaining}</td>
-                                        <td className={`p-3 text-right font-mono font-bold ${row.policyValue >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                            R {row.policyValue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-                                        </td>
+                                        <td className={`p-3 text-right font-mono font-bold ${row.policyValue >= 0 ? 'text-green-600' : 'text-red-600'}`}>R {row.policyValue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -252,7 +310,6 @@ const PolicyValuesModule = ({ policies }) => {
 const AdminModule = ({ policies, onUploadPolicy, onUpdateStatus }) => {
   const [uploadingId, setUploadingId] = useState(null);
   
-  // Settled policies are moved to Archive
   const activePolicies = policies.filter(p => !['Archived', 'Settled', 'Lapsed'].includes(p.status));
   const archivedPolicies = policies.filter(p => ['Archived', 'Settled', 'Lapsed'].includes(p.status));
 
@@ -358,7 +415,7 @@ const ClaimsModule = ({ claims, policies, onAddClaim, onUpdateClaimStatus }) => 
     const policy = policies.find(p => p.id === newClaim.policyId);
     if (!policy) { alert("Policy ID not found"); return; }
     if (['Archived', 'Settled', 'Lapsed'].includes(policy.status)) { alert(`Policy is ${policy.status}. Cannot file claim.`); return; }
-    if (policy.status === 'Pending Doc') { alert("Policy is not active yet (Pending Documents)."); return; }
+    if (policy.status === 'Pending Doc') { alert("Policy is not active yet."); return; }
 
     onAddClaim({ policyId: newClaim.policyId, claimant: policy.name, amount: policy.coverage, date: new Date().toISOString().split('T')[0], status: 'Pending', reason: 'Death of Insured' });
     setNewClaim({ policyId: '' }); setShowForm(false);
@@ -433,6 +490,7 @@ const ClaimsModule = ({ claims, policies, onAddClaim, onUpdateClaimStatus }) => 
   );
 };
 
+// --- UPDATED COMPLAINTS MODULE (Safe Render) ---
 const ComplaintsModule = ({ complaints, policies, onUpdateComplaint, onAddComplaint, currentUser }) => {
   const [showForm, setShowForm] = useState(false);
   const [newComplaint, setNewComplaint] = useState({ policyId: '', subject: '', priority: 'Low' });
@@ -444,7 +502,8 @@ const ComplaintsModule = ({ complaints, policies, onUpdateComplaint, onAddCompla
   // Helper to parse text and make "Attachment: URL" clickable
   const renderCommentWithLinks = (text) => {
     if (!text) return <span className="text-slate-400 italic">No comments yet.</span>;
-    
+    if (typeof text !== 'string') return <span className="text-slate-400 italic">Invalid comment format.</span>;
+
     // Split by newlines to handle the log format
     return text.split('\n').filter(line => line.trim() !== '').map((line, index) => {
       // Check for attachment pattern
@@ -499,13 +558,8 @@ const ComplaintsModule = ({ complaints, policies, onUpdateComplaint, onAddCompla
     setIsSubmitting(false);
 
     if (success) {
-        // Clear form but keep modal open to see result
         setNewComment('');
         setCommentFile(null);
-        // We rely on the parent refreshing 'complaints' prop, but we need to update local 'selectedTicket'
-        // to show the new comment immediately without closing.
-        // We can't easily guess the new string locally perfectly, so we rely on the prop update.
-        // However, selectedTicket is a snapshot. We need to find the updated ticket in the 'complaints' prop.
     }
   };
 
@@ -638,19 +692,35 @@ const App = () => {
   // 1. DATA LOADING
   const refreshData = async () => {
     try {
-      const [pRes, cRes, tRes] = await Promise.all([
+      const [pRes, cRes, tRes, payRes] = await Promise.all([
         fetch(`${API_BASE_URL}/policies`),
         fetch(`${API_BASE_URL}/claims`),
-        fetch(`${API_BASE_URL}/complaints`)
+        fetch(`${API_BASE_URL}/complaints`),
+        fetch(`${API_BASE_URL}/payments`)
       ]);
-      setPolicies((await pRes.json()).map(mapPolicyFromDB));
+      
+      const payments = await payRes.json();
+      
+      // Map Policies and inject payment history
+      setPolicies((await pRes.json()).map(p => {
+          const mapped = mapPolicyFromDB(p);
+          // Attach payment history specific to this policy
+          mapped.paymentHistory = payments
+              .filter(pay => pay.policy_id === p.policy_number)
+              .map(pay => ({ 
+                  date: pay.payment_date ? pay.payment_date.split('T')[0] : '', 
+                  amount: pay.amount 
+              }));
+          return mapped;
+      }));
+
       setClaims((await cRes.json()).map(mapClaimFromDB));
       
-      // Map complaints to include 'comments' field if your DB supports it now
+      // Map Complaints and include comments
       const rawComplaints = await tRes.json();
       setComplaints(rawComplaints.map(t => ({
           ...mapComplaintFromDB(t),
-          comments: t.comments 
+          comments: t.comments // Ensure this passes through if DB has it
       })));
 
     } catch (err) {
@@ -725,21 +795,35 @@ const App = () => {
     }
   };
 
-  const handleProcessPayment = async (id) => {
+  // PAYMENT HANDLER
+  const handleProcessPayment = async (id, amount, date) => {
     const policy = policies.find(p => p.id === id);
     if (!policy) return;
 
-    const nextDate = calculateNextDueDate(policy.inceptionDate, policy.paidUntil);
-    const nextDateStr = nextDate.toISOString().split('T')[0];
-
+    // 1. Record the Payment in the Payments Table
     try {
+        await fetch(`${API_BASE_URL}/payments`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                policyId: id, 
+                amount: amount, 
+                date: date, 
+                userId: currentUser?.id 
+            }) 
+        });
+
+        // 2. Advance the 'Paid Until' Date on the Policy
+        const nextDate = calculateNextDueDate(policy.inceptionDate, policy.paidUntil);
+        const nextDateStr = nextDate.toISOString().split('T')[0];
+
         await fetch(`${API_BASE_URL}/policies/${id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ paid_until: nextDateStr, userId: currentUser?.id })
         });
         
-        alert(`Payment Processed successfully.\nNew Paid Until Date: ${nextDateStr}`);
+        alert(`Payment of R${amount} Recorded.\nNew Paid Until Date: ${nextDateStr}`);
         refreshData();
 
     } catch (e) {
@@ -805,7 +889,7 @@ const App = () => {
     refreshData();
   };
 
-// UPDATED: Handle Complaint Updates (Comments & Status)
+  // UPDATED: Handle Complaint Updates (Comments & Status)
   const handleUpdateComplaint = async (id, updates, file) => {
       let fileUrl = null;
       if (file) {
@@ -819,24 +903,19 @@ const App = () => {
       }
 
       // Logic to append new comment to existing ones
-      // We rely on the current state to get the previous comments string
       let finalComments = updates.existingComments || "";
-      
       if (updates.newComment || fileUrl) {
           const timestamp = new Date().toLocaleString();
           const author = currentUser?.username || 'Unknown';
-          
-          // Format: [Date] User: Comment text
           let entry = `\n[${timestamp}] ${author}: ${updates.newComment || ''}`;
           if (fileUrl) entry += ` (Attachment: ${fileUrl})`;
           
           finalComments += entry;
       }
 
-      // Send to Backend
       const payload = { 
           status: updates.status, 
-          comments: finalComments, 
+          comments: finalComments, // Backend must support this column
           userId: currentUser?.id 
       };
 
@@ -846,12 +925,9 @@ const App = () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
-        
-        // Refresh data to see the new comment immediately
-        await refreshData();
-        return true; // Signal success
-      } catch (err) {
-        alert("Failed to save comment. Ensure your server.js is updated to save 'comments'.");
+        await refreshData(); // Wait for data to reload
+        return true; 
+      } catch(e) {
         return false;
       }
   };
@@ -875,6 +951,7 @@ const App = () => {
             onAddComplaint={handleAddComplaint} 
             currentUser={currentUser}
         />;
+      case 'audit': return <AuditLogModule />;
       default: return (
         <div className="grid grid-cols-1 gap-6">
           <div className="bg-white p-6 rounded shadow">
@@ -930,6 +1007,9 @@ const App = () => {
           
           <NavItem id="claims" label="Claims" icon={AlertCircle} allowedRoles={['agent']} />
           <NavItem id="complaints" label="Complaints" icon={CheckCircle} allowedRoles={['agent']} />
+          
+          <div className="my-4 border-t border-slate-100"></div>
+          <NavItem id="audit" label="Audit Logs" icon={ClipboardList} allowedRoles={['admin']} />
         </nav>
         <div className="p-4 border-t bg-slate-50">
              <div className="flex items-center">

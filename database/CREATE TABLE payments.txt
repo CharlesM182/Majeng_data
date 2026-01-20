@@ -1,0 +1,7 @@
+CREATE TABLE payments (
+    id SERIAL PRIMARY KEY,
+    policy_id VARCHAR(50), -- Links to policy_number
+    amount NUMERIC(12, 2),
+    payment_date DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

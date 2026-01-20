@@ -56,7 +56,7 @@ const logAction = async (userId, action) => {
   }
 };
 
-// --- AUTHENTICATION ROUTES ---
+// --- ROUTES ---
 
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
@@ -68,21 +68,19 @@ app.post('/api/login', async (req, res) => {
     if (password !== user.password_hash) return res.status(401).json({ error: "Invalid credentials" });
 
     const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
-    
-    // Log Login
     await logAction(user.id, 'User Logged In');
 
-    // Return ID so frontend can use it for auditing
     res.json({ token, role: user.role, username: user.username, id: user.id });
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Server Error');
-  }
+  } catch (err) { res.status(500).send('Server Error'); }
 });
 
-// --- DATA ROUTES ---
+app.get('/api/audit-logs', async (req, res) => {
+  try {
+    const result = await pool.query(`SELECT audit_logs.*, users.username FROM audit_logs LEFT JOIN users ON audit_logs.user_id = users.id ORDER BY timestamp DESC`);
+    res.json(result.rows);
+  } catch (err) { res.status(500).send('Server Error'); }
+});
 
-// File Upload
 app.post('/api/upload', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).send('No file uploaded.');
   const fileUrl = `http://localhost:${port}/uploads/${req.file.filename}`;
@@ -98,11 +96,7 @@ app.get('/api/policies', async (req, res) => {
 });
 
 app.post('/api/policies', async (req, res) => {
-  const { 
-    name, idNumber, age, smoker, coverage, premium, status, 
-    inceptionDate, paidUntil, riskFactor, gender, beneficiary, userId 
-  } = req.body;
-  
+  const { name, idNumber, age, smoker, coverage, premium, status, inceptionDate, paidUntil, riskFactor, gender, beneficiary, userId } = req.body;
   const policyNum = `POL-${Math.floor(1000 + Math.random() * 9000)}`;
   const benName = beneficiary ? beneficiary.name : null;
   const benId = beneficiary ? beneficiary.id : null;
@@ -110,54 +104,28 @@ app.post('/api/policies', async (req, res) => {
   const benEmail = beneficiary ? beneficiary.email : null;
 
   try {
-    const query = `
-      INSERT INTO policies (
-        policy_number, applicant_name, id_number, age, smoker, coverage, premium, 
-        risk_factor, status, inception_date, paid_until, gender,
-        beneficiary_name, beneficiary_id, beneficiary_phone, beneficiary_email
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-      RETURNING *
-    `;
-    const values = [
-      policyNum, name, idNumber, age, smoker, coverage, premium, 
-      riskFactor, status, inceptionDate, paidUntil, gender,
-      benName, benId, benPhone, benEmail
-    ];
-    
+    const query = `INSERT INTO policies (policy_number, applicant_name, id_number, age, smoker, coverage, premium, risk_factor, status, inception_date, paid_until, gender, beneficiary_name, beneficiary_id, beneficiary_phone, beneficiary_email) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`;
+    const values = [policyNum, name, idNumber, age, smoker, coverage, premium, riskFactor, status, inceptionDate, paidUntil, gender, benName, benId, benPhone, benEmail];
     const result = await pool.query(query, values);
-    
-    // Audit
     await logAction(userId, `Created Policy ${policyNum}`);
-    
     res.json(result.rows[0]);
-  } catch (err) { 
-    console.error(err);
-    res.status(500).send(err.message); 
-  }
+  } catch (err) { res.status(500).send(err.message); }
 });
 
 app.patch('/api/policies/:id', async (req, res) => {
   const { id } = req.params;
-  const updates = req.body;
-  // Separate userId from the SQL updates
-  const { userId, ...sqlUpdates } = updates;
-
-  const keys = Object.keys(sqlUpdates).filter(k => sqlUpdates[k] !== undefined);
+  const { userId, ...updates } = req.body;
+  const keys = Object.keys(updates).filter(k => updates[k] !== undefined);
   if (keys.length === 0) return res.status(400).send("No fields provided");
 
   const setClause = keys.map((key, index) => `${key} = $${index + 1}`).join(', ');
-  const values = keys.map(key => sqlUpdates[key]);
+  const values = keys.map(key => updates[key]);
   const query = `UPDATE policies SET ${setClause} WHERE policy_number = $${keys.length + 1} RETURNING *`;
   values.push(id);
 
   try {
     const result = await pool.query(query, values);
-    
-    // Audit Logic based on what changed
-    if (sqlUpdates.status) await logAction(userId, `Policy ${id} status changed to ${sqlUpdates.status}`);
-    if (sqlUpdates.paid_until) await logAction(userId, `Policy ${id} payment processed until ${sqlUpdates.paid_until}`);
-
+    if (updates.status) await logAction(userId, `Policy ${id} status: ${updates.status}`);
     res.json(result.rows[0]);
   } catch (err) { res.status(500).send(err.message); }
 });
@@ -177,10 +145,7 @@ app.post('/api/claims', async (req, res) => {
     const query = `INSERT INTO claims (claim_number, policy_id, claimant_name, amount, reason, date_filed, status) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`;
     const values = [claimNum, policyId, claimant, amount, reason, date, status];
     const result = await pool.query(query, values);
-    
-    // Audit
-    await logAction(userId, `Logged Claim ${claimNum} for Policy ${policyId}`);
-
+    await logAction(userId, `Logged Claim ${claimNum}`);
     res.json(result.rows[0]);
   } catch (err) { res.status(500).send(err.message); }
 });
@@ -197,10 +162,7 @@ app.patch('/api/claims/:id', async (req, res) => {
     query += ` WHERE claim_number = $${counter} RETURNING *`;
     values.push(id);
     const result = await pool.query(query, values);
-
-    // Audit
     await logAction(userId, `Claim ${id} ${status}`);
-
     res.json(result.rows[0]);
   } catch (err) { res.status(500).send('Server Error'); }
 });
@@ -220,63 +182,47 @@ app.post('/api/complaints', async (req, res) => {
     const query = `INSERT INTO complaints (ticket_number, policy_id, customer_name, subject, priority, status, date_logged) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`;
     const values = [ticketNum, policyId, customer, subject, priority, status, date];
     const result = await pool.query(query, values);
-
-    // Audit (Optional based on request, but good practice)
     await logAction(userId, `Logged Complaint ${ticketNum}`);
-
     res.json(result.rows[0]);
   } catch (err) { res.status(500).send(err.message); }
 });
 
-// UPDATED: Now supports Status AND Comments
 app.patch('/api/complaints/:id', async (req, res) => {
   const { id } = req.params;
-  const updates = req.body;
-  
-  // Remove userId from SQL updates if it's passed for audit purposes
-  const { userId, ...sqlUpdates } = updates;
-
-  const keys = Object.keys(sqlUpdates).filter(k => sqlUpdates[k] !== undefined);
+  const { userId, ...updates } = req.body;
+  const keys = Object.keys(updates).filter(k => updates[k] !== undefined);
   if (keys.length === 0) return res.status(400).send("No fields provided");
 
-  // Build dynamic SQL: "UPDATE complaints SET status=$1, comments=$2 WHERE ticket_number=$3"
   const setClause = keys.map((key, index) => `${key} = $${index + 1}`).join(', ');
-  const values = keys.map(key => sqlUpdates[key]);
-  
-  // Note: key indexes match values array. The WHERE clause needs the NEXT index.
+  const values = keys.map(key => updates[key]);
   const query = `UPDATE complaints SET ${setClause} WHERE ticket_number = $${keys.length + 1} RETURNING *`;
   values.push(id);
 
   try {
     const result = await pool.query(query, values);
-    
-    // Audit Log (if you have the audit function setup)
-    if (userId) {
-       // Simple audit log call if you implemented the logAction helper
-       // logAction(userId, `Updated Complaint ${id}`); 
-    }
-
+    await logAction(userId, `Updated Complaint ${id}`);
     res.json(result.rows[0]);
-  } catch (err) { 
-    console.error(err);
-    res.status(500).send('Server Error'); 
-  }
+  } catch (err) { res.status(500).send('Server Error'); }
 });
 
-// Add this to server/server.js
-app.get('/api/audit-logs', async (req, res) => {
+// --- NEW PAYMENTS ROUTES ---
+app.get('/api/payments', async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT audit_logs.*, users.username 
-      FROM audit_logs 
-      LEFT JOIN users ON audit_logs.user_id = users.id 
-      ORDER BY timestamp DESC
-    `);
+    const result = await pool.query('SELECT * FROM payments ORDER BY payment_date DESC');
     res.json(result.rows);
-  } catch (err) { 
-    console.error(err);
-    res.status(500).send('Server Error'); 
-  }
+  } catch (err) { res.status(500).send('Server Error'); }
+});
+
+app.post('/api/payments', async (req, res) => {
+  const { policyId, amount, date, userId } = req.body;
+  try {
+    const query = `INSERT INTO payments (policy_id, amount, payment_date) VALUES ($1, $2, $3) RETURNING *`;
+    const values = [policyId, amount, date];
+    const result = await pool.query(query, values);
+    
+    await logAction(userId, `Processed Payment R${amount} for Policy ${policyId}`);
+    res.json(result.rows[0]);
+  } catch (err) { res.status(500).send(err.message); }
 });
 
 app.listen(port, () => {
