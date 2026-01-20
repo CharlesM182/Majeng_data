@@ -15,7 +15,10 @@ import {
   Upload, 
   RefreshCw,
   Lock,
-  LogOut
+  LogOut,
+  X,            // <--- ADDED THIS (Fixes the crash)
+  MessageSquare,// <--- Ensure this is here
+  Paperclip     // <--- Ensure this is here
 } from 'lucide-react';
 
 // --- IMPORT YOUR EXTERNAL MODULES ---
@@ -249,6 +252,7 @@ const PolicyValuesModule = ({ policies }) => {
 const AdminModule = ({ policies, onUploadPolicy, onUpdateStatus }) => {
   const [uploadingId, setUploadingId] = useState(null);
   
+  // Settled policies are moved to Archive
   const activePolicies = policies.filter(p => !['Archived', 'Settled', 'Lapsed'].includes(p.status));
   const archivedPolicies = policies.filter(p => ['Archived', 'Settled', 'Lapsed'].includes(p.status));
 
@@ -340,7 +344,6 @@ const AdminModule = ({ policies, onUploadPolicy, onUpdateStatus }) => {
   );
 };
 
-// UPDATED CLAIMS MODULE
 const ClaimsModule = ({ claims, policies, onAddClaim, onUpdateClaimStatus }) => {
   const [newClaim, setNewClaim] = useState({ policyId: '' });
   const [showForm, setShowForm] = useState(false);
@@ -355,7 +358,7 @@ const ClaimsModule = ({ claims, policies, onAddClaim, onUpdateClaimStatus }) => 
     const policy = policies.find(p => p.id === newClaim.policyId);
     if (!policy) { alert("Policy ID not found"); return; }
     if (['Archived', 'Settled', 'Lapsed'].includes(policy.status)) { alert(`Policy is ${policy.status}. Cannot file claim.`); return; }
-    if (policy.status === 'Pending Doc') { alert("Policy is not active yet."); return; }
+    if (policy.status === 'Pending Doc') { alert("Policy is not active yet (Pending Documents)."); return; }
 
     onAddClaim({ policyId: newClaim.policyId, claimant: policy.name, amount: policy.coverage, date: new Date().toISOString().split('T')[0], status: 'Pending', reason: 'Death of Insured' });
     setNewClaim({ policyId: '' }); setShowForm(false);
@@ -387,11 +390,8 @@ const ClaimsModule = ({ claims, policies, onAddClaim, onUpdateClaimStatus }) => 
         {claims.map(claim => (
           <div key={claim.id} className="bg-white rounded-lg shadow-sm border-l-4 border-l-indigo-500 overflow-hidden">
             <div className="p-4 flex flex-col md:flex-row justify-between items-start md:items-center">
-                <div>
-                  <h4 className="text-lg font-bold mt-1">R {claim.amount.toLocaleString()} - {claim.claimant}</h4>
-                  <p className="text-sm text-slate-600">{claim.reason}</p>
-                  
-                  {/* --- NEW ADDITION: View Settlement Form Link --- */}
+                <div><h4 className="text-lg font-bold mt-1">R {claim.amount.toLocaleString()} - {claim.claimant}</h4><p className="text-sm text-slate-600">{claim.reason}</p>
+                  {/* View Settlement Form Link */}
                   {claim.settlementFormUrl && (
                     <a 
                       href={claim.settlementFormUrl} 
@@ -402,7 +402,6 @@ const ClaimsModule = ({ claims, policies, onAddClaim, onUpdateClaimStatus }) => 
                       <FileText className="w-3 h-3 mr-1" /> View Settlement Form
                     </a>
                   )}
-                  {/* ------------------------------------------- */}
                 </div>
                 <div className="mt-4 md:mt-0 flex items-center space-x-3">{claim.status === 'Pending' ? (<><button onClick={() => initiateAction(claim.id, 'Approve')} className="text-green-600"><CheckCircle className="w-6 h-6" /></button><button onClick={() => initiateAction(claim.id, 'Reject')} className="text-red-600"><XCircle className="w-6 h-6" /></button></>) : (<span className="px-3 py-1 rounded-full font-bold text-sm bg-slate-100 text-slate-800">{claim.status}</span>)}</div>
             </div>
@@ -434,22 +433,194 @@ const ClaimsModule = ({ claims, policies, onAddClaim, onUpdateClaimStatus }) => 
   );
 };
 
-const ComplaintsModule = ({ complaints, policies, onResolveComplaint, onAddComplaint }) => {
+const ComplaintsModule = ({ complaints, policies, onUpdateComplaint, onAddComplaint, currentUser }) => {
   const [showForm, setShowForm] = useState(false);
   const [newComplaint, setNewComplaint] = useState({ policyId: '', subject: '', priority: 'Low' });
+  const [selectedTicket, setSelectedTicket] = useState(null);
+  const [newComment, setNewComment] = useState('');
+  const [commentFile, setCommentFile] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Helper to parse text and make "Attachment: URL" clickable
+  const renderCommentWithLinks = (text) => {
+    if (!text) return <span className="text-slate-400 italic">No comments yet.</span>;
+    
+    // Split by newlines to handle the log format
+    return text.split('\n').filter(line => line.trim() !== '').map((line, index) => {
+      // Check for attachment pattern
+      const attachmentMatch = line.match(/\(Attachment: (https?:\/\/[^\s)]+)\)/);
+      
+      if (attachmentMatch) {
+        const url = attachmentMatch[1];
+        const textPart = line.replace(attachmentMatch[0], '').trim();
+        return (
+          <div key={index} className="mb-2 p-2 bg-white rounded border border-slate-100">
+            <div className="text-slate-800">{textPart}</div>
+            <a 
+              href={url} 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="inline-flex items-center text-xs text-blue-600 hover:text-blue-800 mt-1 font-medium bg-blue-50 px-2 py-1 rounded"
+            >
+              <Paperclip className="w-3 h-3 mr-1"/> View Attached Document
+            </a>
+          </div>
+        );
+      }
+      return <div key={index} className="mb-2 text-slate-700 border-b border-slate-100 pb-1 last:border-0">{line}</div>;
+    });
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
     const policy = policies.find(p => p.id === newComplaint.policyId);
-    onAddComplaint({ policyId: newComplaint.policyId, customer: policy ? policy.name : 'Unknown', subject: newComplaint.subject, status: 'Open', priority: newComplaint.priority, date: new Date().toISOString().split('T')[0] });
-    setNewComplaint({ policyId: '', subject: '', priority: 'Low' }); setShowForm(false);
+    onAddComplaint({ 
+        policyId: newComplaint.policyId, 
+        customer: policy ? policy.name : 'Unknown', 
+        subject: newComplaint.subject, 
+        status: 'Open', 
+        priority: newComplaint.priority, 
+        date: new Date().toISOString().split('T')[0] 
+    });
+    setNewComplaint({ policyId: '', subject: '', priority: 'Low' }); 
+    setShowForm(false);
   };
+
+  const handleAddComment = async () => {
+    if(!newComment && !commentFile) return;
+    setIsSubmitting(true);
+
+    const success = await onUpdateComplaint(selectedTicket.id, { 
+        status: selectedTicket.status, 
+        newComment: newComment,
+        existingComments: selectedTicket.comments 
+    }, commentFile);
+
+    setIsSubmitting(false);
+
+    if (success) {
+        // Clear form but keep modal open to see result
+        setNewComment('');
+        setCommentFile(null);
+        // We rely on the parent refreshing 'complaints' prop, but we need to update local 'selectedTicket'
+        // to show the new comment immediately without closing.
+        // We can't easily guess the new string locally perfectly, so we rely on the prop update.
+        // However, selectedTicket is a snapshot. We need to find the updated ticket in the 'complaints' prop.
+    }
+  };
+
+  // Sync selectedTicket with the latest data from props when props change
+  useEffect(() => {
+    if (selectedTicket) {
+        const updatedTicket = complaints.find(t => t.id === selectedTicket.id);
+        if (updatedTicket) setSelectedTicket(updatedTicket);
+    }
+  }, [complaints]);
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center"><h2 className="text-xl font-bold flex items-center text-slate-800"><AlertCircle className="mr-2 text-orange-600" /> Complaints</h2><button onClick={() => setShowForm(!showForm)} className="bg-orange-600 text-white px-4 py-2 rounded-md"><Plus className="w-4 h-4 mr-2" /> New Complaint</button></div>
-      {showForm && (<form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-sm"><input placeholder="Policy ID" className="w-full border p-2 mb-2 rounded" value={newComplaint.policyId} onChange={e => setNewComplaint({...newComplaint, policyId: e.target.value})} /><button type="submit" className="bg-slate-800 text-white px-6 py-2 rounded">Log</button></form>)}
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden"><table className="w-full text-left"><thead className="bg-slate-50 border-b"><tr><th className="p-4">Customer</th><th className="p-4">Issue</th><th className="p-4">Status</th><th className="p-4">Action</th></tr></thead><tbody>{complaints.map(ticket => (<tr key={ticket.id} className="border-b"><td className="p-4">{ticket.customer}</td><td className="p-4">{ticket.subject}</td><td className="p-4">{ticket.status}</td><td className="p-4">{ticket.status !== 'Resolved' && (<button onClick={() => onResolveComplaint(ticket.id)} className="text-xs bg-green-600 text-white px-3 py-1 rounded">Resolve</button>)}</td></tr>))}</tbody></table></div>
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-bold flex items-center text-slate-800">
+          <AlertCircle className="mr-2 text-orange-600" /> Complaints
+        </h2>
+        <button onClick={() => setShowForm(!showForm)} className="bg-orange-600 text-white px-4 py-2 rounded-md hover:bg-orange-700 flex items-center shadow-sm">
+          <Plus className="w-4 h-4 mr-2" /> New Complaint
+        </button>
+      </div>
+      
+      {showForm && (
+        <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-sm border border-orange-100 animation-fade-in">
+           <h3 className="font-bold mb-4 text-slate-800">Log New Complaint</h3>
+           <div className="flex gap-4 items-end">
+             <div className="flex-1">
+               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Policy ID</label>
+               <input placeholder="e.g. POL-8821" className="w-full border p-2 rounded" value={newComplaint.policyId} onChange={e => setNewComplaint({...newComplaint, policyId: e.target.value})} required />
+             </div>
+             <div className="flex-[2]">
+               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Subject</label>
+               <input placeholder="Issue description" className="w-full border p-2 rounded" value={newComplaint.subject} onChange={e => setNewComplaint({...newComplaint, subject: e.target.value})} required />
+             </div>
+             <div className="flex-1">
+               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Priority</label>
+               <select className="w-full border p-2 rounded bg-white" value={newComplaint.priority} onChange={e => setNewComplaint({...newComplaint, priority: e.target.value})}>
+                 <option value="Low">Low</option>
+                 <option value="Medium">Medium</option>
+                 <option value="High">High</option>
+               </select>
+             </div>
+             <button type="submit" className="bg-slate-800 text-white px-6 py-2 rounded hover:bg-slate-700">Log</button>
+           </div>
+        </form>
+      )}
+      
+      <div className="bg-white rounded-lg shadow-sm overflow-hidden border border-slate-200">
+        <table className="w-full text-left text-sm">
+            <thead className="bg-slate-50 border-b text-slate-600 uppercase text-xs font-bold">
+                <tr><th className="p-4">Customer</th><th className="p-4">Issue</th><th className="p-4">Status</th><th className="p-4">Comments</th><th className="p-4">Action</th></tr>
+            </thead>
+            <tbody className="divide-y">
+                {complaints.map(ticket => (
+                <tr key={ticket.id} className="hover:bg-slate-50">
+                    <td className="p-4 font-medium text-slate-800">{ticket.customer}</td>
+                    <td className="p-4 text-slate-600">{ticket.subject}</td>
+                    <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${ticket.status === 'Resolved' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>{ticket.status}</span></td>
+                    <td className="p-4">
+                        <button onClick={() => setSelectedTicket(ticket)} className="text-xs bg-white text-slate-600 px-3 py-1.5 rounded flex items-center border border-slate-300 hover:bg-slate-50 shadow-sm transition">
+                             <MessageSquare className="w-3 h-3 mr-1"/> {ticket.comments ? 'View/Edit' : 'Add Comment'}
+                        </button>
+                    </td>
+                    <td className="p-4">{ticket.status !== 'Resolved' && (<button onClick={() => onUpdateComplaint(ticket.id, {status: 'Resolved'})} className="text-xs bg-green-600 text-white px-3 py-1.5 rounded hover:bg-green-700 shadow-sm">Resolve</button>)}</td>
+                </tr>
+            ))}
+            </tbody>
+        </table>
+      </div>
+
+      {/* COMMENT MODAL */}
+      {selectedTicket && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col max-h-[80vh]">
+                <div className="p-4 border-b bg-slate-50 flex justify-between items-center flex-shrink-0">
+                    <div>
+                        <h3 className="font-bold text-slate-700 flex items-center"><FileText className="w-4 h-4 mr-2"/> Ticket: {selectedTicket.id}</h3>
+                        <p className="text-xs text-slate-500">{selectedTicket.subject} - {selectedTicket.customer}</p>
+                    </div>
+                    <button onClick={() => setSelectedTicket(null)} className="p-1 hover:bg-slate-200 rounded"><X className="w-5 h-5 text-slate-400 hover:text-slate-600"/></button>
+                </div>
+                
+                {/* Scrollable Comment History */}
+                <div className="p-4 overflow-y-auto flex-grow bg-slate-50 text-xs font-mono border-b border-t text-slate-600">
+                    {renderCommentWithLinks(selectedTicket.comments)}
+                </div>
+
+                {/* Input Area */}
+                <div className="p-4 space-y-3 bg-white flex-shrink-0">
+                    <textarea 
+                        className="w-full border border-slate-300 rounded p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" 
+                        rows="3" 
+                        placeholder="Type a new comment here..." 
+                        value={newComment}
+                        onChange={(e) => setNewComment(e.target.value)}
+                    />
+                    <div className="flex items-center justify-between">
+                         <div className="flex items-center">
+                             <input type="file" id="commentFile" className="hidden" onChange={(e) => setCommentFile(e.target.files[0])} />
+                             <label htmlFor="commentFile" className={`flex items-center text-xs cursor-pointer hover:text-blue-800 font-medium px-2 py-1 rounded ${commentFile ? 'bg-blue-100 text-blue-800' : 'text-blue-600'}`}>
+                                <Paperclip className="w-3 h-3 mr-1"/> {commentFile ? commentFile.name : "Attach Document"}
+                             </label>
+                         </div>
+                         <button 
+                            onClick={handleAddComment} 
+                            disabled={isSubmitting || (!newComment && !commentFile)}
+                            className="bg-slate-800 text-white px-4 py-2 rounded text-sm hover:bg-slate-700 shadow-sm disabled:opacity-50"
+                        >
+                             {isSubmitting ? 'Saving...' : 'Add Entry'}
+                         </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -474,9 +645,16 @@ const App = () => {
       ]);
       setPolicies((await pRes.json()).map(mapPolicyFromDB));
       setClaims((await cRes.json()).map(mapClaimFromDB));
-      setComplaints((await tRes.json()).map(mapComplaintFromDB));
+      
+      // Map complaints to include 'comments' field if your DB supports it now
+      const rawComplaints = await tRes.json();
+      setComplaints(rawComplaints.map(t => ({
+          ...mapComplaintFromDB(t),
+          comments: t.comments 
+      })));
+
     } catch (err) {
-      console.error("Failed to fetch data. Is the server (node server.js) running?", err);
+      console.error("Failed to fetch data.", err);
     }
   };
 
@@ -488,11 +666,11 @@ const App = () => {
     }
   }, [isLoggedIn]);
 
-  // LOGIN HANDLER UPDATED to save user details
+  // LOGIN HANDLER
   const handleLogin = (userData) => {
     setIsLoggedIn(true);
     setCurrentUser(userData);
-    setActiveTab('dashboard'); // Reset to dashboard on login
+    setActiveTab('dashboard'); 
   };
 
   // 2. HANDLERS
@@ -501,7 +679,7 @@ const App = () => {
       await fetch(`${API_BASE_URL}/policies`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(policy)
+        body: JSON.stringify({ ...policy, userId: currentUser?.id })
       });
       setActiveTab('admin');
       alert("Policy successfully saved to Database.");
@@ -516,7 +694,7 @@ const App = () => {
         await fetch(`${API_BASE_URL}/policies/${id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: newStatus })
+            body: JSON.stringify({ status: newStatus, userId: currentUser?.id })
         });
         refreshData();
     } catch (e) {
@@ -536,7 +714,7 @@ const App = () => {
         await fetch(`${API_BASE_URL}/policies/${id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'Active', policy_doc_url: url })
+            body: JSON.stringify({ status: 'Active', policy_doc_url: url, userId: currentUser?.id })
         });
         
         alert("Policy Activated and Document Saved Securely!");
@@ -558,7 +736,7 @@ const App = () => {
         await fetch(`${API_BASE_URL}/policies/${id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ paid_until: nextDateStr }) 
+            body: JSON.stringify({ paid_until: nextDateStr, userId: currentUser?.id })
         });
         
         alert(`Payment Processed successfully.\nNew Paid Until Date: ${nextDateStr}`);
@@ -573,7 +751,7 @@ const App = () => {
     await fetch(`${API_BASE_URL}/claims`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(claim)
+      body: JSON.stringify({ ...claim, userId: currentUser?.id })
     });
     refreshData();
   };
@@ -582,7 +760,7 @@ const App = () => {
     await fetch(`${API_BASE_URL}/complaints`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(complaint)
+        body: JSON.stringify({ ...complaint, userId: currentUser?.id })
     });
     refreshData();
   };
@@ -603,7 +781,7 @@ const App = () => {
         }
     }
 
-    const payload = { status };
+    const payload = { status, userId: currentUser?.id };
     if (reason) payload.rejection_reason = reason;
     if (settlementUrl) payload.settlement_form_url = settlementUrl;
 
@@ -616,24 +794,66 @@ const App = () => {
     if (status === 'Approved') {
         const claim = claims.find(c => c.id === id);
         if (claim && claim.policyId) {
-             // SET STATUS TO SETTLED (Moves to Archive)
+             // SET STATUS TO SETTLED
              await fetch(`${API_BASE_URL}/policies/${claim.policyId}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: 'Settled' })
+                body: JSON.stringify({ status: 'Settled', userId: currentUser?.id })
             });
         }
     }
     refreshData();
   };
 
-  const handleResolveComplaint = async (id) => {
-      await fetch(`${API_BASE_URL}/complaints/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'Resolved' })
-    });
-    refreshData();
+// UPDATED: Handle Complaint Updates (Comments & Status)
+  const handleUpdateComplaint = async (id, updates, file) => {
+      let fileUrl = null;
+      if (file) {
+          const formData = new FormData();
+          formData.append('file', file);
+          try {
+              const res = await fetch(`${API_BASE_URL}/upload`, { method: 'POST', body: formData });
+              const data = await res.json();
+              fileUrl = data.url;
+          } catch (e) { alert("File upload failed"); return; }
+      }
+
+      // Logic to append new comment to existing ones
+      // We rely on the current state to get the previous comments string
+      let finalComments = updates.existingComments || "";
+      
+      if (updates.newComment || fileUrl) {
+          const timestamp = new Date().toLocaleString();
+          const author = currentUser?.username || 'Unknown';
+          
+          // Format: [Date] User: Comment text
+          let entry = `\n[${timestamp}] ${author}: ${updates.newComment || ''}`;
+          if (fileUrl) entry += ` (Attachment: ${fileUrl})`;
+          
+          finalComments += entry;
+      }
+
+      // Send to Backend
+      const payload = { 
+          status: updates.status, 
+          comments: finalComments, 
+          userId: currentUser?.id 
+      };
+
+      try {
+        await fetch(`${API_BASE_URL}/complaints/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        
+        // Refresh data to see the new comment immediately
+        await refreshData();
+        return true; // Signal success
+      } catch (err) {
+        alert("Failed to save comment. Ensure your server.js is updated to save 'comments'.");
+        return false;
+      }
   };
 
   // 3. RENDER CONTENT
@@ -646,7 +866,15 @@ const App = () => {
       case 'claims': return <ClaimsModule claims={claims} policies={policies} onAddClaim={handleAddClaim} onUpdateClaimStatus={handleUpdateClaimStatus} />;
       case 'premium': 
         return <PremiumModule policies={policies} onProcessPayment={handleProcessPayment} />;
-      case 'complaints': return <ComplaintsModule complaints={complaints} policies={policies} onResolveComplaint={handleResolveComplaint} onAddComplaint={handleAddComplaint} />;
+      case 'complaints': 
+        return <ComplaintsModule 
+            complaints={complaints} 
+            policies={policies} 
+            onUpdateComplaint={handleUpdateComplaint} // Pass the general update handler
+            onResolveComplaint={(id) => handleUpdateComplaint(id, {status: 'Resolved'})} 
+            onAddComplaint={handleAddComplaint} 
+            currentUser={currentUser}
+        />;
       default: return (
         <div className="grid grid-cols-1 gap-6">
           <div className="bg-white p-6 rounded shadow">
@@ -660,11 +888,7 @@ const App = () => {
   };
 
   const NavItem = ({ id, label, icon: Icon, allowedRoles }) => {
-    // RBAC: Check if current user role is in the list of allowed roles for this tab
-    // If no roles specified, assume public/all
-    const userRole = currentUser?.role || 'agent'; // default to agent if undefined
-    
-    // Admin sees everything
+    const userRole = currentUser?.role || 'agent'; 
     if (userRole === 'admin') {
       return (
         <button onClick={() => { setActiveTab(id); setIsMobileMenuOpen(false); }} className={`w-full flex items-center p-3 rounded-lg mb-1 ${activeTab === id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}>
@@ -672,11 +896,7 @@ const App = () => {
         </button>
       );
     }
-
-    // Check specific roles
-    if (allowedRoles && !allowedRoles.includes(userRole)) {
-      return null; // Render nothing if not allowed
-    }
+    if (allowedRoles && !allowedRoles.includes(userRole)) return null;
 
     return (
       <button onClick={() => { setActiveTab(id); setIsMobileMenuOpen(false); }} className={`w-full flex items-center p-3 rounded-lg mb-1 ${activeTab === id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}>

@@ -64,5 +64,6 @@ export const mapComplaintFromDB = (t) => ({
   subject: t.subject,
   priority: t.priority,
   status: t.status,
+  comments: t.comments,
   date: t.date_logged ? t.date_logged.split('T')[0] : ''
 });
