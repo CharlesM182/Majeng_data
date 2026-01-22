@@ -1,30 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Shield, 
-  Users, 
-  FileText, 
-  DollarSign, 
-  AlertCircle, 
-  CheckCircle, 
-  XCircle, 
-  Activity, 
-  Plus, 
-  Calculator, 
-  TrendingUp, 
-  Archive, 
-  Upload, 
-  RefreshCw,
-  Lock,
-  LogOut,
-  ClipboardList,
-  MessageSquare,
-  Paperclip,
-  X // Required for the close button in modals
+  Shield, Users, FileText, DollarSign, AlertCircle, CheckCircle, 
+  XCircle, Activity, Plus, Calculator, TrendingUp, Archive, Upload, 
+  RefreshCw, Lock, LogOut, ClipboardList, MessageSquare, Paperclip,
+  ArrowUpRight, ArrowDownLeft, Calendar, X, QrCode 
 } from 'lucide-react';
+import { jsPDF } from "jspdf";
 
-// --- IMPORT YOUR EXTERNAL MODULES ---
+
 import UnderwritingModule from './components/UnderwritingModule'; 
+import AuditLogModule from './components/AuditLogModule';
 import PremiumModule from './components/PremiumModule';
+import PolicyValuesModule from './components/PolicyValuesModule';
+import AdminModule from './components/AdminModule';
+import ClaimsModule from './components/ClaimsModule';
+import ComplaintsModule from './components/ComplaintsModule';
+import LoginScreen from './components/LoginScreen';
+
 import { calculateSinglePolicyValue, ACTUARIAL_CONSTANTS } from './utils/actuarial';
 import { mapPolicyFromDB, mapClaimFromDB, mapComplaintFromDB } from './utils/helpers';
 import { calculateNextDueDate } from './utils/paymentLogic';
@@ -43,641 +35,16 @@ try {
   console.log('Running in web mode');
 }
 
-// --- LOGIN COMPONENT ---
-const LoginScreen = ({ onLogin }) => {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+// ==========================================
+//                 UTILS
+// ==========================================
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
 
-    try {
-      const response = await fetch(`${API_BASE_URL}/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-      });
+// ==========================================
+//              MODULE COMPONENTS
+// ==========================================
 
-      const data = await response.json();
 
-      if (response.ok) {
-        onLogin(data);
-      } else {
-        setError(data.error || 'Invalid credentials');
-      }
-    } catch (err) {
-      setError('Cannot connect to server.');
-    }
-  };
-
-  return (
-    <div className="flex items-center justify-center h-screen bg-slate-100 font-sans text-slate-900">
-      <div className="bg-white p-8 rounded-lg shadow-lg w-96 border border-slate-200">
-        <div className="flex flex-col items-center mb-6">
-          <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center mb-3">
-            <Lock className="w-6 h-6 text-indigo-600" />
-          </div>
-          <h2 className="text-2xl font-bold text-slate-800">Majeng Life</h2>
-          <p className="text-sm text-slate-500">Core Admin System</p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Username</label>
-            <input 
-              type="text" 
-              className="w-full border border-slate-300 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 outline-none"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Enter username"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Password</label>
-            <input 
-              type="password" 
-              className="w-full border border-slate-300 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 outline-none"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter password"
-              required
-            />
-          </div>
-          
-          {error && <div className="bg-red-50 text-red-600 text-sm p-2 rounded text-center border border-red-100">{error}</div>}
-
-          <button type="submit" className="w-full bg-indigo-600 text-white py-2 rounded-md hover:bg-indigo-700 transition font-medium">Login</button>
-        </form>
-      </div>
-    </div>
-  );
-};
-
-// --- AUDIT LOG MODULE ---
-const AuditLogModule = () => {
-  const [logs, setLogs] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchLogs = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/audit-logs`);
-        if (response.ok) {
-          const data = await response.json();
-          setLogs(data);
-        }
-      } catch (error) {
-        console.error("Failed to fetch audit logs", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchLogs();
-  }, []);
-
-  return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-bold flex items-center text-slate-800">
-          <ClipboardList className="mr-2 text-indigo-600" /> System Audit Logs
-        </h2>
-      </div>
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 border-b text-slate-600 uppercase text-xs font-bold">
-              <tr>
-                <th className="p-4">Timestamp</th>
-                <th className="p-4">User</th>
-                <th className="p-4">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {loading ? (
-                 <tr><td colSpan="3" className="p-6 text-center text-slate-500">Loading logs...</td></tr>
-              ) : logs.length === 0 ? (
-                 <tr><td colSpan="3" className="p-6 text-center text-slate-500">No activity recorded.</td></tr>
-              ) : (
-                logs.map((log) => (
-                  <tr key={log.id} className="hover:bg-slate-50">
-                    <td className="p-4 font-mono text-xs text-slate-500">
-                      {new Date(log.timestamp).toLocaleString()}
-                    </td>
-                    <td className="p-4 font-medium text-slate-800">{log.username || `User #${log.user_id}`}</td>
-                    <td className="p-4 text-slate-600">{log.action}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// --- INLINE MODULES ---
-
-const PolicyValuesModule = ({ policies }) => {
-  const [activeSubTab, setActiveSubTab] = useState('projection');
-  const [selectedPolicyId, setSelectedPolicyId] = useState('');
-  const [projection, setProjection] = useState(null);
-  const [portfolioValuation, setPortfolioValuation] = useState([]);
-
-  const handleGenerateProjection = () => {
-    const policy = policies.find(p => p.id === selectedPolicyId);
-    if (!policy) return;
-
-    const results = [];
-    const term = ACTUARIAL_CONSTANTS.n; 
-
-    for (let t = 0; t <= term; t++) {
-        const val = calculateSinglePolicyValue(policy, t);
-        results.push({
-            year: t,
-            age: parseInt(policy.age) + t,
-            termRemaining: term - t,
-            policyValue: val
-        });
-    }
-    setProjection({ policy, results });
-  };
-
-  useEffect(() => {
-    if (activeSubTab === 'valuation') {
-      const activePolicies = policies.filter(p => p.status === 'Active');
-      
-      const valuationData = activePolicies.map(policy => {
-        const inceptionYear = new Date(policy.inceptionDate).getFullYear();
-        const currentYear = new Date().getFullYear();
-        const duration = Math.max(0, currentYear - inceptionYear);
-        const currentValue = calculateSinglePolicyValue(policy, duration);
-        return { ...policy, duration, currentValue };
-      });
-      setPortfolioValuation(valuationData);
-    }
-  }, [activeSubTab, policies]);
-
-  return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-bold flex items-center text-slate-800">
-          <TrendingUp className="mr-2 text-purple-600" /> Policy Value Analysis
-        </h2>
-        <div className="bg-slate-100 p-1 rounded-lg flex text-sm font-medium">
-          <button onClick={() => setActiveSubTab('projection')} className={`px-4 py-2 rounded-md transition ${activeSubTab === 'projection' ? 'bg-white shadow text-purple-700' : 'text-slate-500 hover:text-slate-700'}`}>Individual Projection</button>
-          <button onClick={() => setActiveSubTab('valuation')} className={`px-4 py-2 rounded-md transition ${activeSubTab === 'valuation' ? 'bg-white shadow text-purple-700' : 'text-slate-500 hover:text-slate-700'}`}>Current Valuation</button>
-        </div>
-      </div>
-
-      {activeSubTab === 'projection' && (
-        <div className="space-y-6">
-            <div className="bg-white p-6 rounded-lg shadow-sm border">
-                <label className="block text-sm font-medium text-slate-700 mb-2">Select Policy to Project</label>
-                <div className="flex gap-4">
-                    <select 
-                        className="flex-1 border rounded-md p-2 bg-slate-50"
-                        value={selectedPolicyId}
-                        onChange={(e) => setSelectedPolicyId(e.target.value)}
-                    >
-                        <option value="">-- Select Active Policy --</option>
-                        {policies.filter(p => p.status === 'Active').map(p => (
-                            <option key={p.id} value={p.id}>{p.id} - {p.name}</option>
-                        ))}
-                    </select>
-                    <button 
-                        onClick={handleGenerateProjection}
-                        disabled={!selectedPolicyId}
-                        className="bg-purple-600 text-white px-6 py-2 rounded-md hover:bg-purple-700 disabled:opacity-50"
-                    >
-                        Generate Projection
-                    </button>
-                </div>
-            </div>
-            {projection && (
-                <div className="bg-white rounded-lg shadow-sm overflow-hidden border">
-                    <div className="p-4 bg-purple-50 border-b border-purple-100 flex justify-between items-center">
-                        <h3 className="font-bold text-purple-900">Projection: {projection.policy.name}</h3>
-                        <span className="text-sm text-purple-700">Sum Insured: R {projection.policy.coverage.toLocaleString()}</span>
-                    </div>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm">
-                            <thead className="bg-slate-50 text-slate-600 uppercase text-xs">
-                                <tr><th className="p-3">Year (t)</th><th className="p-3">Age</th><th className="p-3">Term Remaining</th><th className="p-3 text-right">Policy Value E(L)</th></tr>
-                            </thead>
-                            <tbody className="divide-y">
-                                {projection.results.map((row) => (
-                                    <tr key={row.year} className="hover:bg-slate-50">
-                                        <td className="p-3 font-mono">{row.year}</td>
-                                        <td className="p-3">{row.age}</td>
-                                        <td className="p-3">{row.termRemaining}</td>
-                                        <td className={`p-3 text-right font-mono font-bold ${row.policyValue >= 0 ? 'text-green-600' : 'text-red-600'}`}>R {row.policyValue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            )}
-        </div>
-      )}
-
-      {activeSubTab === 'valuation' && (
-        <div className="bg-white rounded-lg shadow-sm overflow-hidden border">
-           <div className="p-4 bg-purple-50 border-b border-purple-100 flex justify-between items-center">
-             <h3 className="font-bold text-purple-900">Portfolio Valuation Snapshot ({new Date().getFullYear()})</h3>
-             <div className="text-sm text-purple-800 font-medium">Total Reserve: R {portfolioValuation.reduce((acc, curr) => acc + (curr.currentValue || 0), 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-           </div>
-           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-slate-600 uppercase text-xs"><tr><th className="p-3">Policy ID</th><th className="p-3">Holder</th><th className="p-3 text-right">Current Reserve E(L)</th></tr></thead>
-              <tbody className="divide-y">
-                {portfolioValuation.length === 0 ? <tr><td colSpan="3" className="p-6 text-center text-slate-500">No active policies found.</td></tr> : portfolioValuation.map((row) => (
-                    <tr key={row.id} className="hover:bg-slate-50"><td className="p-3">{row.id}</td><td className="p-3">{row.name}</td><td className={`p-3 text-right font-bold ${row.currentValue >= 0 ? 'text-green-600' : 'text-red-600'}`}>R {row.currentValue ? row.currentValue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0.00'}</td></tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-const AdminModule = ({ policies, onUploadPolicy, onUpdateStatus }) => {
-  const [uploadingId, setUploadingId] = useState(null);
-  
-  const activePolicies = policies.filter(p => !['Archived', 'Settled', 'Lapsed'].includes(p.status));
-  const archivedPolicies = policies.filter(p => ['Archived', 'Settled', 'Lapsed'].includes(p.status));
-
-  const handleFileChange = async (e, id) => {
-    const file = e.target.files[0];
-    if (file) {
-      setUploadingId(id);
-      await onUploadPolicy(id, file);
-      setUploadingId(null);
-    }
-  };
-
-  return (
-    <div className="space-y-8">
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-        <div className="p-6 border-b"><h2 className="text-xl font-bold flex items-center text-slate-800"><Users className="mr-2 text-indigo-600" /> Active Policy Administration</h2></div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className="bg-slate-50 text-slate-600 uppercase text-xs"><tr><th className="p-4">ID</th><th className="p-4">Holder</th><th className="p-4">Coverage</th><th className="p-4">Status</th><th className="p-4">Action</th></tr></thead>
-            <tbody className="divide-y">
-              {activePolicies.length === 0 ? <tr><td colSpan="5" className="p-6 text-center text-slate-500">No active policies.</td></tr> : activePolicies.map(policy => (
-                  <tr key={policy.id} className="hover:bg-slate-50">
-                    <td className="p-4 font-mono text-xs">{policy.id}</td>
-                    <td className="p-4">{policy.name}</td>
-                    <td className="p-4">R {policy.coverage.toLocaleString()}</td>
-                    <td className="p-4">
-                      <select
-                        value={policy.status}
-                        onChange={(e) => onUpdateStatus(policy.id, e.target.value)}
-                        className={`px-2 py-1 rounded-full text-xs font-bold border-none focus:ring-2 focus:ring-blue-500 cursor-pointer ${
-                          policy.status === 'Active' ? 'bg-green-100 text-green-700' : 
-                          policy.status === 'Pending Doc' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'
-                        }`}
-                      >
-                        <option value="Pending Doc" disabled={policy.status !== 'Pending Doc'}>Pending Doc</option>
-                        <option value="Active">Active</option>
-                        <option value="Lapsed">Lapsed</option>
-                        <option value="Settled">Settled</option>
-                      </select>
-                    </td>
-                    <td className="p-4">
-                        {policy.status === 'Pending Doc' && (
-                            <div className="relative">
-                                {uploadingId === policy.id ? (
-                                    <span className="text-xs font-bold text-blue-600 animate-pulse">Uploading...</span>
-                                ) : (
-                                    <>
-                                        <input 
-                                            type="file" 
-                                            id={`file-upload-${policy.id}`} 
-                                            className="hidden" 
-                                            onChange={(e) => handleFileChange(e, policy.id)}
-                                        />
-                                        <label 
-                                            htmlFor={`file-upload-${policy.id}`}
-                                            className="flex items-center text-xs bg-indigo-50 text-indigo-600 border border-indigo-200 px-3 py-1 rounded hover:bg-indigo-100 cursor-pointer"
-                                        >
-                                            <Upload className="w-3 h-3 mr-1" /> Upload
-                                        </label>
-                                    </>
-                                )}
-                            </div>
-                        )}
-                        {policy.status === 'Active' && policy.policyDocumentUrl && (
-                             <a 
-                                href={policy.policyDocumentUrl} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="flex items-center text-xs text-blue-600 hover:text-blue-800 font-medium"
-                             >
-                                <FileText className="w-3 h-3 mr-1" /> View Doc
-                             </a>
-                        )}
-                        {policy.status === 'Active' && !policy.policyDocumentUrl && (
-                             <span className="text-xs text-slate-400 italic">No Doc</span>
-                        )}
-                    </td>
-                  </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <div className="bg-slate-50 rounded-lg shadow-inner overflow-hidden border border-slate-200">
-        <div className="p-4 border-b border-slate-200 bg-slate-100"><h3 className="text-lg font-bold flex items-center text-slate-600"><Archive className="mr-2 w-5 h-5" /> Policy Archive</h3></div>
-        <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="text-slate-500 uppercase text-xs"><tr><th className="p-3">ID</th><th className="p-3">Holder</th><th className="p-3">Reason</th><th className="p-3">Status</th></tr></thead><tbody className="divide-y divide-slate-200">{archivedPolicies.map(policy => (<tr key={policy.id} className="text-slate-500"><td className="p-3 font-mono">{policy.id}</td><td className="p-3">{policy.name}</td><td className="p-3">{policy.reason || 'Status Change / Terminated'}</td><td className="p-3"><span className={`px-2 py-0.5 rounded text-xs font-bold ${policy.status === 'Settled' ? 'bg-green-200 text-green-800' : 'bg-gray-200 text-gray-800'}`}>{policy.status || 'Archived'}</span></td></tr>))}</tbody></table></div>
-      </div>
-    </div>
-  );
-};
-
-const ClaimsModule = ({ claims, policies, onAddClaim, onUpdateClaimStatus }) => {
-  const [newClaim, setNewClaim] = useState({ policyId: '' });
-  const [showForm, setShowForm] = useState(false);
-  const [actionClaimId, setActionClaimId] = useState(null);
-  const [actionType, setActionType] = useState(null);
-  const [rejectReason, setRejectReason] = useState('');
-  const [hasUploadedForm, setHasUploadedForm] = useState(false);
-  const [uploading, setUploading] = useState(false);
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const policy = policies.find(p => p.id === newClaim.policyId);
-    if (!policy) { alert("Policy ID not found"); return; }
-    if (['Archived', 'Settled', 'Lapsed'].includes(policy.status)) { alert(`Policy is ${policy.status}. Cannot file claim.`); return; }
-    if (policy.status === 'Pending Doc') { alert("Policy is not active yet."); return; }
-
-    onAddClaim({ policyId: newClaim.policyId, claimant: policy.name, amount: policy.coverage, date: new Date().toISOString().split('T')[0], status: 'Pending', reason: 'Death of Insured' });
-    setNewClaim({ policyId: '' }); setShowForm(false);
-  };
-
-  const handleSettlementUpload = async (e, id) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      setUploading(true);
-      await onUpdateClaimStatus(id, 'File_Upload', null, file);
-      setUploading(false);
-      setHasUploadedForm(true);
-  };
-
-  const initiateAction = (id, type) => {
-    setActionClaimId(id); setActionType(type); setRejectReason(''); setHasUploadedForm(false);
-  };
-
-  const handleConfirmAction = (id) => {
-    onUpdateClaimStatus(id, actionType === 'Approve' ? 'Approved' : 'Rejected', rejectReason);
-    setActionClaimId(null); setActionType(null);
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center"><h2 className="text-xl font-bold flex items-center text-slate-800"><FileText className="mr-2 text-red-600" /> Claims Processing</h2><button onClick={() => setShowForm(!showForm)} className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 flex items-center"><Plus className="w-4 h-4 mr-2" /> New Claim</button></div>
-      {showForm && (<form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-sm border border-red-100"><h3 className="font-bold mb-4">File New Claim</h3><div className="flex gap-4 items-end"><div className="flex-1"><label className="block text-sm font-medium text-slate-700 mb-1">Policy ID</label><input placeholder="Policy ID" className="w-full border p-2 rounded" value={newClaim.policyId} onChange={e => setNewClaim({...newClaim, policyId: e.target.value})} required /></div><button type="submit" className="bg-slate-800 text-white px-6 py-2 rounded">Submit</button></div></form>)}
-      <div className="grid grid-cols-1 gap-4">
-        {claims.map(claim => (
-          <div key={claim.id} className="bg-white rounded-lg shadow-sm border-l-4 border-l-indigo-500 overflow-hidden">
-            <div className="p-4 flex flex-col md:flex-row justify-between items-start md:items-center">
-                <div><h4 className="text-lg font-bold mt-1">R {claim.amount.toLocaleString()} - {claim.claimant}</h4><p className="text-sm text-slate-600">{claim.reason}</p>
-                  {/* View Settlement Form Link */}
-                  {claim.settlementFormUrl && (
-                    <a 
-                      href={claim.settlementFormUrl} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center text-xs text-blue-600 hover:text-blue-800 font-medium mt-1"
-                    >
-                      <FileText className="w-3 h-3 mr-1" /> View Settlement Form
-                    </a>
-                  )}
-                </div>
-                <div className="mt-4 md:mt-0 flex items-center space-x-3">{claim.status === 'Pending' ? (<><button onClick={() => initiateAction(claim.id, 'Approve')} className="text-green-600"><CheckCircle className="w-6 h-6" /></button><button onClick={() => initiateAction(claim.id, 'Reject')} className="text-red-600"><XCircle className="w-6 h-6" /></button></>) : (<span className="px-3 py-1 rounded-full font-bold text-sm bg-slate-100 text-slate-800">{claim.status}</span>)}</div>
-            </div>
-            {actionClaimId === claim.id && claim.status === 'Pending' && (
-                <div className="bg-slate-50 border-t p-4">
-                    {actionType === 'Approve' && (
-                        <div className="flex flex-col gap-3">
-                            <p className="text-sm font-bold text-slate-700">Required: Upload Settlement Form</p>
-                            <div className="flex gap-4 items-center">
-                                {uploading ? <span className="text-sm text-blue-600 animate-pulse">Uploading Form...</span> : (
-                                    <>
-                                        <input type="file" id={`settle-${claim.id}`} className="hidden" onChange={(e) => handleSettlementUpload(e, claim.id)} />
-                                        <label htmlFor={`settle-${claim.id}`} className={`flex items-center px-4 py-2 rounded text-sm border cursor-pointer ${hasUploadedForm ? 'bg-green-100 text-green-700 border-green-300' : 'bg-white text-slate-600 border-slate-300'}`}>
-                                            <Upload className="w-4 h-4 mr-2" /> {hasUploadedForm ? 'Form Uploaded' : 'Select File'}
-                                        </label>
-                                    </>
-                                )}
-                                <button onClick={() => handleConfirmAction(claim.id)} disabled={!hasUploadedForm} className="bg-green-600 text-white px-4 py-2 rounded text-sm disabled:opacity-50">Confirm Approval</button>
-                            </div>
-                        </div>
-                    )}
-                    {actionType === 'Reject' && (<div className="flex gap-4 items-center"><input type="text" placeholder="Reason" className="flex-1 border p-2 rounded text-sm" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} /><button onClick={() => handleConfirmAction(claim.id)} disabled={!rejectReason.trim()} className="bg-red-600 text-white px-4 py-2 rounded text-sm disabled:opacity-50">Confirm Rejection</button></div>)}
-                </div>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-// --- UPDATED COMPLAINTS MODULE (Safe Render) ---
-const ComplaintsModule = ({ complaints, policies, onUpdateComplaint, onAddComplaint, currentUser }) => {
-  const [showForm, setShowForm] = useState(false);
-  const [newComplaint, setNewComplaint] = useState({ policyId: '', subject: '', priority: 'Low' });
-  const [selectedTicket, setSelectedTicket] = useState(null);
-  const [newComment, setNewComment] = useState('');
-  const [commentFile, setCommentFile] = useState(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Helper to parse text and make "Attachment: URL" clickable
-  const renderCommentWithLinks = (text) => {
-    if (!text) return <span className="text-slate-400 italic">No comments yet.</span>;
-    if (typeof text !== 'string') return <span className="text-slate-400 italic">Invalid comment format.</span>;
-
-    // Split by newlines to handle the log format
-    return text.split('\n').filter(line => line.trim() !== '').map((line, index) => {
-      // Check for attachment pattern
-      const attachmentMatch = line.match(/\(Attachment: (https?:\/\/[^\s)]+)\)/);
-      
-      if (attachmentMatch) {
-        const url = attachmentMatch[1];
-        const textPart = line.replace(attachmentMatch[0], '').trim();
-        return (
-          <div key={index} className="mb-2 p-2 bg-white rounded border border-slate-100">
-            <div className="text-slate-800">{textPart}</div>
-            <a 
-              href={url} 
-              target="_blank" 
-              rel="noopener noreferrer" 
-              className="inline-flex items-center text-xs text-blue-600 hover:text-blue-800 mt-1 font-medium bg-blue-50 px-2 py-1 rounded"
-            >
-              <Paperclip className="w-3 h-3 mr-1"/> View Attached Document
-            </a>
-          </div>
-        );
-      }
-      return <div key={index} className="mb-2 text-slate-700 border-b border-slate-100 pb-1 last:border-0">{line}</div>;
-    });
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const policy = policies.find(p => p.id === newComplaint.policyId);
-    onAddComplaint({ 
-        policyId: newComplaint.policyId, 
-        customer: policy ? policy.name : 'Unknown', 
-        subject: newComplaint.subject, 
-        status: 'Open', 
-        priority: newComplaint.priority, 
-        date: new Date().toISOString().split('T')[0] 
-    });
-    setNewComplaint({ policyId: '', subject: '', priority: 'Low' }); 
-    setShowForm(false);
-  };
-
-  const handleAddComment = async () => {
-    if(!newComment && !commentFile) return;
-    setIsSubmitting(true);
-
-    const success = await onUpdateComplaint(selectedTicket.id, { 
-        status: selectedTicket.status, 
-        newComment: newComment,
-        existingComments: selectedTicket.comments 
-    }, commentFile);
-
-    setIsSubmitting(false);
-
-    if (success) {
-        setNewComment('');
-        setCommentFile(null);
-    }
-  };
-
-  // Sync selectedTicket with the latest data from props when props change
-  useEffect(() => {
-    if (selectedTicket) {
-        const updatedTicket = complaints.find(t => t.id === selectedTicket.id);
-        if (updatedTicket) setSelectedTicket(updatedTicket);
-    }
-  }, [complaints]);
-
-  return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-bold flex items-center text-slate-800">
-          <AlertCircle className="mr-2 text-orange-600" /> Complaints
-        </h2>
-        <button onClick={() => setShowForm(!showForm)} className="bg-orange-600 text-white px-4 py-2 rounded-md hover:bg-orange-700 flex items-center shadow-sm">
-          <Plus className="w-4 h-4 mr-2" /> New Complaint
-        </button>
-      </div>
-      
-      {showForm && (
-        <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-sm border border-orange-100 animation-fade-in">
-           <h3 className="font-bold mb-4 text-slate-800">Log New Complaint</h3>
-           <div className="flex gap-4 items-end">
-             <div className="flex-1">
-               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Policy ID</label>
-               <input placeholder="e.g. POL-8821" className="w-full border p-2 rounded" value={newComplaint.policyId} onChange={e => setNewComplaint({...newComplaint, policyId: e.target.value})} required />
-             </div>
-             <div className="flex-[2]">
-               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Subject</label>
-               <input placeholder="Issue description" className="w-full border p-2 rounded" value={newComplaint.subject} onChange={e => setNewComplaint({...newComplaint, subject: e.target.value})} required />
-             </div>
-             <div className="flex-1">
-               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Priority</label>
-               <select className="w-full border p-2 rounded bg-white" value={newComplaint.priority} onChange={e => setNewComplaint({...newComplaint, priority: e.target.value})}>
-                 <option value="Low">Low</option>
-                 <option value="Medium">Medium</option>
-                 <option value="High">High</option>
-               </select>
-             </div>
-             <button type="submit" className="bg-slate-800 text-white px-6 py-2 rounded hover:bg-slate-700">Log</button>
-           </div>
-        </form>
-      )}
-      
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden border border-slate-200">
-        <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 border-b text-slate-600 uppercase text-xs font-bold">
-                <tr><th className="p-4">Customer</th><th className="p-4">Issue</th><th className="p-4">Status</th><th className="p-4">Comments</th><th className="p-4">Action</th></tr>
-            </thead>
-            <tbody className="divide-y">
-                {complaints.map(ticket => (
-                <tr key={ticket.id} className="hover:bg-slate-50">
-                    <td className="p-4 font-medium text-slate-800">{ticket.customer}</td>
-                    <td className="p-4 text-slate-600">{ticket.subject}</td>
-                    <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${ticket.status === 'Resolved' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>{ticket.status}</span></td>
-                    <td className="p-4">
-                        <button onClick={() => setSelectedTicket(ticket)} className="text-xs bg-white text-slate-600 px-3 py-1.5 rounded flex items-center border border-slate-300 hover:bg-slate-50 shadow-sm transition">
-                             <MessageSquare className="w-3 h-3 mr-1"/> {ticket.comments ? 'View/Edit' : 'Add Comment'}
-                        </button>
-                    </td>
-                    <td className="p-4">{ticket.status !== 'Resolved' && (<button onClick={() => onUpdateComplaint(ticket.id, {status: 'Resolved'})} className="text-xs bg-green-600 text-white px-3 py-1.5 rounded hover:bg-green-700 shadow-sm">Resolve</button>)}</td>
-                </tr>
-            ))}
-            </tbody>
-        </table>
-      </div>
-
-      {/* COMMENT MODAL */}
-      {selectedTicket && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col max-h-[80vh]">
-                <div className="p-4 border-b bg-slate-50 flex justify-between items-center flex-shrink-0">
-                    <div>
-                        <h3 className="font-bold text-slate-700 flex items-center"><FileText className="w-4 h-4 mr-2"/> Ticket: {selectedTicket.id}</h3>
-                        <p className="text-xs text-slate-500">{selectedTicket.subject} - {selectedTicket.customer}</p>
-                    </div>
-                    <button onClick={() => setSelectedTicket(null)} className="p-1 hover:bg-slate-200 rounded"><X className="w-5 h-5 text-slate-400 hover:text-slate-600"/></button>
-                </div>
-                
-                {/* Scrollable Comment History */}
-                <div className="p-4 overflow-y-auto flex-grow bg-slate-50 text-xs font-mono border-b border-t text-slate-600">
-                    {renderCommentWithLinks(selectedTicket.comments)}
-                </div>
-
-                {/* Input Area */}
-                <div className="p-4 space-y-3 bg-white flex-shrink-0">
-                    <textarea 
-                        className="w-full border border-slate-300 rounded p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" 
-                        rows="3" 
-                        placeholder="Type a new comment here..." 
-                        value={newComment}
-                        onChange={(e) => setNewComment(e.target.value)}
-                    />
-                    <div className="flex items-center justify-between">
-                         <div className="flex items-center">
-                             <input type="file" id="commentFile" className="hidden" onChange={(e) => setCommentFile(e.target.files[0])} />
-                             <label htmlFor="commentFile" className={`flex items-center text-xs cursor-pointer hover:text-blue-800 font-medium px-2 py-1 rounded ${commentFile ? 'bg-blue-100 text-blue-800' : 'text-blue-600'}`}>
-                                <Paperclip className="w-3 h-3 mr-1"/> {commentFile ? commentFile.name : "Attach Document"}
-                             </label>
-                         </div>
-                         <button 
-                            onClick={handleAddComment} 
-                            disabled={isSubmitting || (!newComment && !commentFile)}
-                            className="bg-slate-800 text-white px-4 py-2 rounded text-sm hover:bg-slate-700 shadow-sm disabled:opacity-50"
-                        >
-                             {isSubmitting ? 'Saving...' : 'Add Entry'}
-                         </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-      )}
-    </div>
-  );
-};
 
 // --- MAIN APP COMPONENT ---
 const App = () => {
@@ -704,7 +71,6 @@ const App = () => {
       // Map Policies and inject payment history
       setPolicies((await pRes.json()).map(p => {
           const mapped = mapPolicyFromDB(p);
-          // Attach payment history specific to this policy
           mapped.paymentHistory = payments
               .filter(pay => pay.policy_id === p.policy_number)
               .map(pay => ({ 
@@ -736,11 +102,11 @@ const App = () => {
     }
   }, [isLoggedIn]);
 
-  // LOGIN HANDLER
+  // LOGIN HANDLER UPDATED to save user details
   const handleLogin = (userData) => {
     setIsLoggedIn(true);
     setCurrentUser(userData);
-    setActiveTab('dashboard'); 
+    setActiveTab('dashboard'); // Reset to dashboard on login
   };
 
   // 2. HANDLERS
@@ -849,6 +215,7 @@ const App = () => {
     refreshData();
   };
 
+  // UPDATED: Set Policy to 'Settled' when claim approved
   const handleUpdateClaimStatus = async (id, status, reason, file) => {
     let settlementUrl = null;
     
@@ -878,7 +245,7 @@ const App = () => {
     if (status === 'Approved') {
         const claim = claims.find(c => c.id === id);
         if (claim && claim.policyId) {
-             // SET STATUS TO SETTLED
+             // SET STATUS TO SETTLED (Moves to Archive)
              await fetch(`${API_BASE_URL}/policies/${claim.policyId}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
@@ -915,7 +282,7 @@ const App = () => {
 
       const payload = { 
           status: updates.status, 
-          comments: finalComments, // Backend must support this column
+          comments: finalComments, 
           userId: currentUser?.id 
       };
 
@@ -925,7 +292,7 @@ const App = () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
-        await refreshData(); // Wait for data to reload
+        await refreshData(); 
         return true; 
       } catch(e) {
         return false;
@@ -946,8 +313,7 @@ const App = () => {
         return <ComplaintsModule 
             complaints={complaints} 
             policies={policies} 
-            onUpdateComplaint={handleUpdateComplaint} // Pass the general update handler
-            onResolveComplaint={(id) => handleUpdateComplaint(id, {status: 'Resolved'})} 
+            onUpdateComplaint={handleUpdateComplaint} 
             onAddComplaint={handleAddComplaint} 
             currentUser={currentUser}
         />;

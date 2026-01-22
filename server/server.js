@@ -6,6 +6,9 @@ const path = require('path');
 const fs = require('fs');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
+const qrcode = require('qrcode');
+// --- STABLE IMPORT (Works with otplib@11.0.1) ---
+const { authenticator } = require('otplib'); 
 require('dotenv').config();
 
 const app = express();
@@ -21,7 +24,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, 
   max: 2000, 
-  message: "Too many requests from this IP, please try again after 15 minutes"
+  message: "Too many requests from this IP"
 });
 app.use(limiter);
 
@@ -56,8 +59,9 @@ const logAction = async (userId, action) => {
   }
 };
 
-// --- ROUTES ---
+// --- AUTHENTICATION ROUTES (2FA) ---
 
+// Step 1: Check Password
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
   try {
@@ -65,14 +69,90 @@ app.post('/api/login', async (req, res) => {
     if (result.rows.length === 0) return res.status(401).json({ error: "Invalid credentials" });
 
     const user = result.rows[0];
+    // In production, compare hashes here
     if (password !== user.password_hash) return res.status(401).json({ error: "Invalid credentials" });
 
-    const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
-    await logAction(user.id, 'User Logged In');
-
-    res.json({ token, role: user.role, username: user.username, id: user.id });
-  } catch (err) { res.status(500).send('Server Error'); }
+    // Password matches. Now check 2FA status.
+    if (!user.totp_secret) {
+        // User has no 2FA set up yet -> Trigger Setup Flow
+        return res.json({ status: 'setup_required', userId: user.id });
+    } else {
+        // User has 2FA -> Trigger Verification Flow
+        return res.json({ status: '2fa_required', userId: user.id });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Server Error');
+  }
 });
+
+// Step 2a: Generate QR Code (For new users)
+app.post('/api/2fa/setup', async (req, res) => {
+    const { userId } = req.body;
+    try {
+        const userRes = await pool.query('SELECT username FROM users WHERE id = $1', [userId]);
+        if (userRes.rows.length === 0) return res.status(404).send("User not found");
+        const username = userRes.rows[0].username;
+
+        const secret = authenticator.generateSecret();
+        // Generate otpauth URL using the library's built-in tool
+        const otpauth = authenticator.keyuri(username, 'Majeng Life', secret);
+        
+        // Generate QR Code image
+        const imageUrl = await qrcode.toDataURL(otpauth);
+
+        res.json({ secret, qrCode: imageUrl });
+    } catch (err) {
+        console.error("2FA Setup Error:", err);
+        res.status(500).send(err.message);
+    }
+});
+
+// Step 2b: Confirm Setup & Enable (For new users)
+app.post('/api/2fa/enable', async (req, res) => {
+    const { userId, secret, token } = req.body;
+    try {
+        // Verify the code against the pending secret
+        const isValid = authenticator.check(token, secret); // v11 uses .check() or .verify()
+        if (!isValid) return res.status(400).json({ error: "Invalid Code" });
+
+        // Save secret to DB
+        await pool.query('UPDATE users SET totp_secret = $1 WHERE id = $2', [secret, userId]);
+        
+        // Issue JWT
+        const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+        const user = userRes.rows[0];
+        const jwtToken = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
+        
+        await logAction(userId, '2FA Enabled & Logged In');
+        res.json({ token: jwtToken, role: user.role, username: user.username, id: user.id });
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
+
+// Step 2c: Verify 2FA (For returning users)
+app.post('/api/2fa/verify', async (req, res) => {
+    const { userId, token } = req.body;
+    try {
+        const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+        if (userRes.rows.length === 0) return res.status(404).send("User not found");
+        const user = userRes.rows[0];
+
+        const isValid = authenticator.check(token, user.totp_secret); // v11 uses .check()
+        if (!isValid) return res.status(400).json({ error: "Invalid Authenticator Code" });
+
+        // Issue JWT
+        const jwtToken = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
+        
+        await logAction(userId, 'User Logged In (2FA)');
+        res.json({ token: jwtToken, role: user.role, username: user.username, id: user.id });
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
+
+// --- DATA ROUTES ---
 
 app.get('/api/audit-logs', async (req, res) => {
   try {
@@ -200,12 +280,11 @@ app.patch('/api/complaints/:id', async (req, res) => {
 
   try {
     const result = await pool.query(query, values);
-    await logAction(userId, `Updated Complaint ${id}`);
+    if(userId) await logAction(userId, `Updated Complaint ${id}`);
     res.json(result.rows[0]);
   } catch (err) { res.status(500).send('Server Error'); }
 });
 
-// --- NEW PAYMENTS ROUTES ---
 app.get('/api/payments', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM payments ORDER BY payment_date DESC');
