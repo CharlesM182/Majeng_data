@@ -3,21 +3,20 @@ import {
   Shield, Users, FileText, DollarSign, AlertCircle, CheckCircle, 
   XCircle, Activity, Plus, Calculator, TrendingUp, Archive, Upload, 
   RefreshCw, Lock, LogOut, ClipboardList, MessageSquare, Paperclip,
-  ArrowUpRight, ArrowDownLeft, Calendar, X, QrCode 
+  ArrowUpRight, ArrowDownLeft, Calendar, X 
 } from 'lucide-react';
 import { jsPDF } from "jspdf";
 
-
+// --- IMPORT YOUR EXTERNAL MODULES ---
+import LoginScreen from './components/LoginScreen'; 
 import UnderwritingModule from './components/UnderwritingModule'; 
-import AuditLogModule from './components/AuditLogModule';
 import PremiumModule from './components/PremiumModule';
-import PolicyValuesModule from './components/PolicyValuesModule';
-import AdminModule from './components/AdminModule';
+import AdminModule from './components/AdminModule'; // Updated Component
 import ClaimsModule from './components/ClaimsModule';
+import PolicyValuesModule from './components/PolicyValuesModule';
 import ComplaintsModule from './components/ComplaintsModule';
-import LoginScreen from './components/LoginScreen';
+import AuditLogModule from './components/AuditLogModule';
 
-import { calculateSinglePolicyValue, ACTUARIAL_CONSTANTS } from './utils/actuarial';
 import { mapPolicyFromDB, mapClaimFromDB, mapComplaintFromDB } from './utils/helpers';
 import { calculateNextDueDate } from './utils/paymentLogic';
 
@@ -34,17 +33,6 @@ try {
 } catch (e) {
   console.log('Running in web mode');
 }
-
-// ==========================================
-//                 UTILS
-// ==========================================
-
-
-// ==========================================
-//              MODULE COMPONENTS
-// ==========================================
-
-
 
 // --- MAIN APP COMPONENT ---
 const App = () => {
@@ -68,7 +56,6 @@ const App = () => {
       
       const payments = await payRes.json();
       
-      // Map Policies and inject payment history
       setPolicies((await pRes.json()).map(p => {
           const mapped = mapPolicyFromDB(p);
           mapped.paymentHistory = payments
@@ -82,11 +69,10 @@ const App = () => {
 
       setClaims((await cRes.json()).map(mapClaimFromDB));
       
-      // Map Complaints and include comments
       const rawComplaints = await tRes.json();
       setComplaints(rawComplaints.map(t => ({
           ...mapComplaintFromDB(t),
-          comments: t.comments // Ensure this passes through if DB has it
+          comments: t.comments 
       })));
 
     } catch (err) {
@@ -102,11 +88,11 @@ const App = () => {
     }
   }, [isLoggedIn]);
 
-  // LOGIN HANDLER UPDATED to save user details
+  // LOGIN HANDLER
   const handleLogin = (userData) => {
     setIsLoggedIn(true);
     setCurrentUser(userData);
-    setActiveTab('dashboard'); // Reset to dashboard on login
+    setActiveTab('dashboard'); 
   };
 
   // 2. HANDLERS
@@ -138,22 +124,30 @@ const App = () => {
     }
   };
 
+  // NEW: Handler to fetch docs for a specific policy
+  const handleFetchPolicyDocuments = async (policyId) => {
+      try {
+          const res = await fetch(`${API_BASE_URL}/policies/${policyId}/documents`);
+          if (res.ok) {
+              return await res.json();
+          }
+      } catch (e) {
+          console.error("Error fetching docs", e);
+      }
+      return [];
+  };
+
+  // UPDATED: Handle Upload (Support Multiple)
   const handleUploadPolicyDoc = async (id, file) => {
     if (!file) return;
     try {
         const formData = new FormData();
         formData.append('file', file);
+        formData.append('userId', currentUser?.id); // For audit
         
-        const uploadRes = await fetch(`${API_BASE_URL}/upload`, { method: 'POST', body: formData });
-        const { url } = await uploadRes.json();
-
-        await fetch(`${API_BASE_URL}/policies/${id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'Active', policy_doc_url: url, userId: currentUser?.id })
-        });
+        await fetch(`${API_BASE_URL}/policies/${id}/documents`, { method: 'POST', body: formData });
         
-        alert("Policy Activated and Document Saved Securely!");
+        // Don't alert every time, just refresh
         refreshData();
     } catch(e) {
         console.error(e);
@@ -161,12 +155,13 @@ const App = () => {
     }
   };
 
-  // PAYMENT HANDLER
   const handleProcessPayment = async (id, amount, date) => {
     const policy = policies.find(p => p.id === id);
     if (!policy) return;
 
-    // 1. Record the Payment in the Payments Table
+    const nextDate = calculateNextDueDate(policy.inceptionDate, policy.paidUntil);
+    const nextDateStr = nextDate.toISOString().split('T')[0];
+
     try {
         await fetch(`${API_BASE_URL}/payments`, {
             method: 'POST',
@@ -179,17 +174,13 @@ const App = () => {
             }) 
         });
 
-        // 2. Advance the 'Paid Until' Date on the Policy
-        const nextDate = calculateNextDueDate(policy.inceptionDate, policy.paidUntil);
-        const nextDateStr = nextDate.toISOString().split('T')[0];
-
         await fetch(`${API_BASE_URL}/policies/${id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ paid_until: nextDateStr, userId: currentUser?.id })
         });
         
-        alert(`Payment of R${amount} Recorded.\nNew Paid Until Date: ${nextDateStr}`);
+        alert(`Payment Processed successfully.\nNew Paid Until Date: ${nextDateStr}`);
         refreshData();
 
     } catch (e) {
@@ -215,7 +206,6 @@ const App = () => {
     refreshData();
   };
 
-  // UPDATED: Set Policy to 'Settled' when claim approved
   const handleUpdateClaimStatus = async (id, status, reason, file) => {
     let settlementUrl = null;
     
@@ -245,7 +235,7 @@ const App = () => {
     if (status === 'Approved') {
         const claim = claims.find(c => c.id === id);
         if (claim && claim.policyId) {
-             // SET STATUS TO SETTLED (Moves to Archive)
+             // SET STATUS TO SETTLED
              await fetch(`${API_BASE_URL}/policies/${claim.policyId}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
@@ -256,7 +246,6 @@ const App = () => {
     refreshData();
   };
 
-  // UPDATED: Handle Complaint Updates (Comments & Status)
   const handleUpdateComplaint = async (id, updates, file) => {
       let fileUrl = null;
       if (file) {
@@ -269,14 +258,12 @@ const App = () => {
           } catch (e) { alert("File upload failed"); return; }
       }
 
-      // Logic to append new comment to existing ones
       let finalComments = updates.existingComments || "";
       if (updates.newComment || fileUrl) {
           const timestamp = new Date().toLocaleString();
           const author = currentUser?.username || 'Unknown';
           let entry = `\n[${timestamp}] ${author}: ${updates.newComment || ''}`;
           if (fileUrl) entry += ` (Attachment: ${fileUrl})`;
-          
           finalComments += entry;
       }
 
@@ -299,12 +286,27 @@ const App = () => {
       }
   };
 
+  const handleResolveComplaint = async (id) => {
+      await fetch(`${API_BASE_URL}/complaints/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'Resolved', userId: currentUser?.id })
+    });
+    refreshData();
+  };
+
   // 3. RENDER CONTENT
   const renderContent = () => {
     switch (activeTab) {
       case 'underwriting': 
         return <UnderwritingModule onCreatePolicy={handleCreatePolicy} />;
-      case 'admin': return <AdminModule policies={policies} onUploadPolicy={handleUploadPolicyDoc} onUpdateStatus={handleUpdatePolicyStatus} />;
+      case 'admin': 
+        return <AdminModule 
+            policies={policies} 
+            onUploadPolicy={handleUploadPolicyDoc} 
+            onUpdateStatus={handleUpdatePolicyStatus} 
+            onFetchDocs={handleFetchPolicyDocuments} // Passed new handler
+        />;
       case 'policyValues': return <PolicyValuesModule policies={policies} />;
       case 'claims': return <ClaimsModule claims={claims} policies={policies} onAddClaim={handleAddClaim} onUpdateClaimStatus={handleUpdateClaimStatus} />;
       case 'premium': 
@@ -313,7 +315,8 @@ const App = () => {
         return <ComplaintsModule 
             complaints={complaints} 
             policies={policies} 
-            onUpdateComplaint={handleUpdateComplaint} 
+            onUpdateComplaint={handleUpdateComplaint} // Pass the general update handler
+            onResolveComplaint={(id) => handleUpdateComplaint(id, {status: 'Resolved'})} 
             onAddComplaint={handleAddComplaint} 
             currentUser={currentUser}
         />;

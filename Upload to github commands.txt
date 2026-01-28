@@ -5,7 +5,7 @@ cd C:\Majeng-System
 git add .
 
 ```cmd
-git commit -m "Update server logic and database schema for beneficiaries"
+git commit -m "Updated payments system"
 
 ```cmd
 git push origin main
