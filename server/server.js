@@ -59,7 +59,25 @@ const logAction = async (userId, action) => {
   }
 };
 
+// --- HELPER: USERNAME GENERATOR (Option 1) ---
+const generateUsername = () => {
+    const vowels = "BCDFGHJKLMNPQRSTVWXYZ";
+    const numbers = "0123456789";
+    let username = "";
+    
+    // Pick 3 random vowels
+    for (let i = 0; i < 3; i++) {
+        username += vowels.charAt(Math.floor(Math.random() * vowels.length));
+    }
+    // Pick 2 random numbers
+    for (let i = 0; i < 2; i++) {
+        username += numbers.charAt(Math.floor(Math.random() * numbers.length));
+    }
+    return username;
+};
+
 // --- AUTHENTICATION ROUTES ---
+
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
   try {
@@ -95,7 +113,7 @@ app.post('/api/2fa/enable', async (req, res) => {
         const user = userRes.rows[0];
         const jwtToken = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
         await logAction(userId, '2FA Enabled & Logged In');
-        res.json({ token: jwtToken, role: user.role, username: user.username, id: user.id });
+        res.json({ token: jwtToken, role: user.role, username: user.username, realName: user.real_name, id: user.id });
     } catch (err) { res.status(500).send(err.message); }
 });
 
@@ -109,26 +127,73 @@ app.post('/api/2fa/verify', async (req, res) => {
         if (!isValid) return res.status(400).json({ error: "Invalid Authenticator Code" });
         const jwtToken = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
         await logAction(userId, 'User Logged In (2FA)');
-        res.json({ token: jwtToken, role: user.role, username: user.username, id: user.id });
+        res.json({ token: jwtToken, role: user.role, username: user.username, realName: user.real_name, id: user.id });
     } catch (err) { res.status(500).send(err.message); }
+});
+
+// --- ADMIN USER MANAGEMENT ROUTE (NEW) ---
+app.post('/api/users/create', async (req, res) => {
+    const { password, role, realName, currentUserId } = req.body;
+
+    // Retry loop to ensure unique username
+    let attempts = 0;
+    let created = false;
+    let username = '';
+    let newUser = null;
+
+    while (!created && attempts < 5) {
+        username = generateUsername();
+        try {
+            const result = await pool.query(
+                'INSERT INTO users (username, password_hash, role, real_name) VALUES ($1, $2, $3, $4) RETURNING *',
+                [username, password, role, realName]
+            );
+            newUser = result.rows[0];
+            created = true;
+        } catch (err) {
+            // Check for Unique Violation (duplicate username)
+            if (err.code === '23505') { 
+                attempts++;
+                continue; // Try again
+            } else {
+                console.error("User Creation Error:", err);
+                return res.status(500).send(err.message);
+            }
+        }
+    }
+
+    if (!created) {
+        return res.status(500).send("Failed to generate unique username after 5 attempts. Please try again.");
+    }
+
+    // Log the action
+    await logAction(currentUserId, `Created User: ${username} (${realName})`);
+    
+    // Return the new user details so you can show the admin the new ID
+    res.json({ username: newUser.username, realName: newUser.real_name });
 });
 
 // --- DATA ROUTES ---
 
 app.get('/api/audit-logs', async (req, res) => {
   try {
-    const result = await pool.query(`SELECT audit_logs.*, users.username FROM audit_logs LEFT JOIN users ON audit_logs.user_id = users.id ORDER BY timestamp DESC`);
+    const result = await pool.query(`
+      SELECT audit_logs.*, users.username, users.real_name 
+      FROM audit_logs 
+      LEFT JOIN users ON audit_logs.user_id = users.id 
+      ORDER BY timestamp DESC
+    `);
     res.json(result.rows);
   } catch (err) { res.status(500).send('Server Error'); }
 });
 
-// Generic Upload (used by claims/complaints)
 app.post('/api/upload', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).send('No file uploaded.');
   const fileUrl = `http://localhost:${port}/uploads/${req.file.filename}`;
   res.json({ url: fileUrl });
 });
 
+// Policies
 app.get('/api/policies', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM policies ORDER BY created_at DESC');
@@ -158,10 +223,12 @@ app.patch('/api/policies/:id', async (req, res) => {
   const { userId, ...updates } = req.body;
   const keys = Object.keys(updates).filter(k => updates[k] !== undefined);
   if (keys.length === 0) return res.status(400).send("No fields provided");
+
   const setClause = keys.map((key, index) => `${key} = $${index + 1}`).join(', ');
   const values = keys.map(key => updates[key]);
   const query = `UPDATE policies SET ${setClause} WHERE policy_number = $${keys.length + 1} RETURNING *`;
   values.push(id);
+
   try {
     const result = await pool.query(query, values);
     if (updates.status) await logAction(userId, `Policy ${id} status: ${updates.status}`);
@@ -169,9 +236,6 @@ app.patch('/api/policies/:id', async (req, res) => {
   } catch (err) { res.status(500).send(err.message); }
 });
 
-// --- NEW MULTI-DOCUMENT ROUTES ---
-
-// Get documents for a policy
 app.get('/api/policies/:id/documents', async (req, res) => {
     const { id } = req.params;
     try {
@@ -180,39 +244,32 @@ app.get('/api/policies/:id/documents', async (req, res) => {
     } catch (err) { res.status(500).send('Server Error'); }
 });
 
-// Upload a document for a policy
 app.post('/api/policies/:id/documents', upload.single('file'), async (req, res) => {
     const { id } = req.params;
-    const { userId } = req.body; // Passed via FormData
+    const { userId } = req.body;
     if (!req.file) return res.status(400).send('No file');
-    
     const fileUrl = `http://localhost:${port}/uploads/${req.file.filename}`;
     const fileName = req.file.originalname;
-
     try {
-        // 1. Insert into policy_documents table
         await pool.query('INSERT INTO policy_documents (policy_id, doc_name, doc_url) VALUES ($1, $2, $3)', [id, fileName, fileUrl]);
-        
-        // 2. If policy was 'Pending Doc', Activate it
         const policyRes = await pool.query('SELECT status FROM policies WHERE policy_number = $1', [id]);
         if (policyRes.rows.length > 0 && policyRes.rows[0].status === 'Pending Doc') {
             await pool.query('UPDATE policies SET status = $1 WHERE policy_number = $2', ['Active', id]);
             await logAction(userId, `Policy ${id} Activated via Upload`);
         }
-
         res.json({ success: true, url: fileUrl });
     } catch (err) { res.status(500).send(err.message); }
 });
 
-// --- OTHER ROUTES ---
+// Other Routes
 app.get('/api/claims', async (req, res) => { try { const result = await pool.query('SELECT * FROM claims ORDER BY created_at DESC'); res.json(result.rows); } catch (err) { res.status(500).send('Server Error'); } });
-app.post('/api/claims', async (req, res) => { /* Same as before... */ const { policyId, claimant, amount, reason, date, status, userId } = req.body; const claimNum = `CLM-${Math.floor(1000 + Math.random() * 9000)}`; try { const query = `INSERT INTO claims (claim_number, policy_id, claimant_name, amount, reason, date_filed, status) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`; const values = [claimNum, policyId, claimant, amount, reason, date, status]; const result = await pool.query(query, values); await logAction(userId, `Logged Claim ${claimNum}`); res.json(result.rows[0]); } catch (err) { res.status(500).send(err.message); } });
-app.patch('/api/claims/:id', async (req, res) => { /* Same as before... */ const { id } = req.params; const { status, settlement_form_url, rejection_reason, userId } = req.body; try { let query = 'UPDATE claims SET status = $1'; const values = [status]; let counter = 2; if (settlement_form_url) { query += `, settlement_form_url = $${counter}`; values.push(settlement_form_url); counter++; } if (rejection_reason) { query += `, rejection_reason = $${counter}`; values.push(rejection_reason); counter++; } query += ` WHERE claim_number = $${counter} RETURNING *`; values.push(id); const result = await pool.query(query, values); await logAction(userId, `Claim ${id} ${status}`); res.json(result.rows[0]); } catch (err) { res.status(500).send('Server Error'); } });
+app.post('/api/claims', async (req, res) => { const { policyId, claimant, amount, reason, date, status, userId } = req.body; const claimNum = `CLM-${Math.floor(1000 + Math.random() * 9000)}`; try { const query = `INSERT INTO claims (claim_number, policy_id, claimant_name, amount, reason, date_filed, status) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`; const values = [claimNum, policyId, claimant, amount, reason, date, status]; const result = await pool.query(query, values); await logAction(userId, `Logged Claim ${claimNum}`); res.json(result.rows[0]); } catch (err) { res.status(500).send(err.message); } });
+app.patch('/api/claims/:id', async (req, res) => { const { id } = req.params; const { status, settlement_form_url, rejection_reason, userId } = req.body; try { let query = 'UPDATE claims SET status = $1'; const values = [status]; let counter = 2; if (settlement_form_url) { query += `, settlement_form_url = $${counter}`; values.push(settlement_form_url); counter++; } if (rejection_reason) { query += `, rejection_reason = $${counter}`; values.push(rejection_reason); counter++; } query += ` WHERE claim_number = $${counter} RETURNING *`; values.push(id); const result = await pool.query(query, values); await logAction(userId, `Claim ${id} ${status}`); res.json(result.rows[0]); } catch (err) { res.status(500).send('Server Error'); } });
 app.get('/api/complaints', async (req, res) => { try { const result = await pool.query('SELECT * FROM complaints ORDER BY created_at DESC'); res.json(result.rows); } catch (err) { res.status(500).send('Server Error'); } });
-app.post('/api/complaints', async (req, res) => { /* Same as before... */ const { policyId, customer, subject, priority, status, date, userId } = req.body; const ticketNum = `TKT-${Math.floor(1000 + Math.random() * 9000)}`; try { const query = `INSERT INTO complaints (ticket_number, policy_id, customer_name, subject, priority, status, date_logged) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`; const values = [ticketNum, policyId, customer, subject, priority, status, date]; const result = await pool.query(query, values); await logAction(userId, `Logged Complaint ${ticketNum}`); res.json(result.rows[0]); } catch (err) { res.status(500).send(err.message); } });
-app.patch('/api/complaints/:id', async (req, res) => { /* Same as before... */ const { id } = req.params; const { userId, ...updates } = req.body; const keys = Object.keys(updates).filter(k => updates[k] !== undefined); if (keys.length === 0) return res.status(400).send("No fields provided"); const setClause = keys.map((key, index) => `${key} = $${index + 1}`).join(', '); const values = keys.map(key => updates[key]); const query = `UPDATE complaints SET ${setClause} WHERE ticket_number = $${keys.length + 1} RETURNING *`; values.push(id); try { const result = await pool.query(query, values); if(userId) await logAction(userId, `Updated Complaint ${id}`); res.json(result.rows[0]); } catch (err) { res.status(500).send('Server Error'); } });
+app.post('/api/complaints', async (req, res) => { const { policyId, customer, subject, priority, status, date, userId } = req.body; const ticketNum = `TKT-${Math.floor(1000 + Math.random() * 9000)}`; try { const query = `INSERT INTO complaints (ticket_number, policy_id, customer_name, subject, priority, status, date_logged) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`; const values = [ticketNum, policyId, customer, subject, priority, status, date]; const result = await pool.query(query, values); await logAction(userId, `Logged Complaint ${ticketNum}`); res.json(result.rows[0]); } catch (err) { res.status(500).send(err.message); } });
+app.patch('/api/complaints/:id', async (req, res) => { const { id } = req.params; const { userId, ...updates } = req.body; const keys = Object.keys(updates).filter(k => updates[k] !== undefined); if (keys.length === 0) return res.status(400).send("No fields provided"); const setClause = keys.map((key, index) => `${key} = $${index + 1}`).join(', '); const values = keys.map(key => updates[key]); const query = `UPDATE complaints SET ${setClause} WHERE ticket_number = $${keys.length + 1} RETURNING *`; values.push(id); try { const result = await pool.query(query, values); if(userId) await logAction(userId, `Updated Complaint ${id}`); res.json(result.rows[0]); } catch (err) { res.status(500).send('Server Error'); } });
 app.get('/api/payments', async (req, res) => { try { const result = await pool.query('SELECT * FROM payments ORDER BY payment_date DESC'); res.json(result.rows); } catch (err) { res.status(500).send('Server Error'); } });
-app.post('/api/payments', async (req, res) => { /* Same as before... */ const { policyId, amount, date, userId } = req.body; try { const query = `INSERT INTO payments (policy_id, amount, payment_date) VALUES ($1, $2, $3) RETURNING *`; const values = [policyId, amount, date]; const result = await pool.query(query, values); await logAction(userId, `Processed Payment R${amount} for Policy ${policyId}`); res.json(result.rows[0]); } catch (err) { res.status(500).send(err.message); } });
+app.post('/api/payments', async (req, res) => { const { policyId, amount, date, userId } = req.body; try { const query = `INSERT INTO payments (policy_id, amount, payment_date) VALUES ($1, $2, $3) RETURNING *`; const values = [policyId, amount, date]; const result = await pool.query(query, values); await logAction(userId, `Processed Payment R${amount} for Policy ${policyId}`); res.json(result.rows[0]); } catch (err) { res.status(500).send(err.message); } });
 
 app.listen(port, () => {
   console.log(`Majeng API running on port ${port}`);

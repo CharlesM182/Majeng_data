@@ -1,5 +1,3 @@
-// --- AUDIT LOG MODULE ---
-
 import React, { useState, useEffect } from 'react';
 import { ClipboardList } from 'lucide-react';
 
@@ -33,7 +31,7 @@ const AuditLogModule = () => {
           <ClipboardList className="mr-2 text-indigo-600" /> System Audit Logs
         </h2>
       </div>
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+      <div className="bg-white rounded-lg shadow-sm overflow-hidden border border-slate-200">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 border-b text-slate-600 uppercase text-xs font-bold">
@@ -54,7 +52,10 @@ const AuditLogModule = () => {
                     <td className="p-4 font-mono text-xs text-slate-500">
                       {new Date(log.timestamp).toLocaleString()}
                     </td>
-                    <td className="p-4 font-medium text-slate-800">{log.username || `User #${log.user_id}`}</td>
+                    <td className="p-4 font-medium text-slate-800">
+                      {/* Displays: "John Doe (ADM01)" or just "ADM01" if name missing */}
+                      {log.real_name ? `${log.real_name} (${log.username})` : (log.username || `User #${log.user_id}`)}
+                    </td>
                     <td className="p-4 text-slate-600">{log.action}</td>
                   </tr>
                 ))

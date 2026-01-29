@@ -8,16 +8,27 @@ const LoginScreen = ({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [userId, setUserId] = useState(null);
+  
+  // 2FA State
   const [qrCode, setQrCode] = useState('');
   const [secret, setSecret] = useState('');
-  const [token, setToken] = useState(''); // 2FA Code
+  const [token, setToken] = useState(''); 
+  
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    setLoading(true);
     setError('');
+
+    // REGEX VALIDATION: 3 Letters + 2 Numbers (e.g. ADM01)
+    const usernameRegex = /^[A-Za-z]{3}\d{2}$/;
+    if (!usernameRegex.test(username)) {
+        setError('Username format invalid. Must be 3 letters and 2 numbers (e.g., ADM01).');
+        return;
+    }
+
+    setLoading(true);
 
     try {
       const response = await fetch(`${API_BASE_URL}/login`, {
@@ -31,19 +42,19 @@ const LoginScreen = ({ onLogin }) => {
       if (data.error) {
         setError(data.error);
       } else if (data.status === 'setup_required') {
-        // Need to set up 2FA
+        // User needs to set up 2FA for the first time
         setUserId(data.userId);
         await initiateSetup(data.userId);
       } else if (data.status === '2fa_required') {
-        // Need to verify code
+        // User has 2FA, needs to verify code
         setUserId(data.userId);
         setStep('verify');
       } else if (data.token) {
-        // Regular login (fallback)
+        // Direct login (if 2FA was disabled/bypassed)
         onLogin(data);
       }
     } catch (err) {
-      setError('Cannot connect to server.');
+      setError('Cannot connect to server. Ensure Node.js backend is running.');
     } finally {
       setLoading(false);
     }
@@ -68,6 +79,8 @@ const LoginScreen = ({ onLogin }) => {
   const handleVerify2FA = async (e) => {
     e.preventDefault();
     const endpoint = step === 'setup' ? '/2fa/enable' : '/2fa/verify';
+    
+    // If setting up, we send the secret back to confirm. If verifying, we just send user ID.
     const body = step === 'setup' 
       ? { userId, secret, token } 
       : { userId, token };
@@ -81,9 +94,9 @@ const LoginScreen = ({ onLogin }) => {
       const data = await res.json();
       
       if (data.token) {
-        onLogin(data); // Success!
+        onLogin(data); // Success! Pass user data to App
       } else {
-        setError("Invalid Code");
+        setError("Invalid Code. Please try again.");
       }
     } catch (err) {
       setError("Verification failed");
@@ -103,44 +116,75 @@ const LoginScreen = ({ onLogin }) => {
           </p>
         </div>
 
-        {/* STEP 1: LOGIN */}
+        {/* STEP 1: INITIAL LOGIN */}
         {step === 'login' && (
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Username</label>
-              <input className="w-full border rounded p-2" value={username} onChange={e => setUsername(e.target.value)} required />
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Username (e.g. ADM01)</label>
+              <input 
+                className="w-full border border-slate-300 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 outline-none uppercase" 
+                value={username} 
+                onChange={e => setUsername(e.target.value.toUpperCase())} 
+                placeholder="XXX00"
+                required 
+              />
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Password</label>
-              <input type="password" className="w-full border rounded p-2" value={password} onChange={e => setPassword(e.target.value)} required />
+              <input 
+                type="password" 
+                className="w-full border border-slate-300 rounded-md p-2 focus:ring-2 focus:ring-indigo-500 outline-none" 
+                value={password} 
+                onChange={e => setPassword(e.target.value)} 
+                placeholder="••••••••"
+                required 
+              />
             </div>
-            {error && <div className="bg-red-50 text-red-600 text-sm p-2 rounded text-center">{error}</div>}
-            <button type="submit" className="w-full bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700 disabled:opacity-50" disabled={loading}>
+            {error && <div className="bg-red-50 text-red-600 text-sm p-2 rounded text-center border border-red-100">{error}</div>}
+            <button 
+                type="submit" 
+                className="w-full bg-indigo-600 text-white py-2 rounded-md hover:bg-indigo-700 disabled:opacity-50 transition" 
+                disabled={loading}
+            >
               {loading ? 'Checking...' : 'Next'}
             </button>
           </form>
         )}
 
-        {/* STEP 2: SETUP QR (First Time) */}
+        {/* STEP 2: SETUP QR (First time users) */}
         {step === 'setup' && (
           <form onSubmit={handleVerify2FA} className="space-y-4 text-center">
             <p className="text-xs text-slate-600">Scan this code with Google Authenticator:</p>
             <div className="flex justify-center my-2">
-                <img src={qrCode} alt="Scan this QR" className="border p-2" />
+                <img src={qrCode} alt="Scan this QR" className="border p-2 rounded" />
             </div>
-            <input className="w-full border rounded p-2 text-center tracking-widest text-lg" placeholder="000000" maxLength={6} value={token} onChange={e => setToken(e.target.value)} required />
+            <input 
+                className="w-full border border-slate-300 rounded-md p-2 text-center tracking-widest text-lg focus:ring-2 focus:ring-green-500 outline-none" 
+                placeholder="000 000" 
+                maxLength={6} 
+                value={token} 
+                onChange={e => setToken(e.target.value)} 
+                required 
+            />
             {error && <div className="bg-red-50 text-red-600 text-sm p-2 rounded">{error}</div>}
-            <button type="submit" className="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700">Enable & Login</button>
+            <button type="submit" className="w-full bg-green-600 text-white py-2 rounded-md hover:bg-green-700 transition">Enable & Login</button>
           </form>
         )}
 
-        {/* STEP 3: VERIFY (Returning) */}
+        {/* STEP 3: VERIFY (Returning users) */}
         {step === 'verify' && (
            <form onSubmit={handleVerify2FA} className="space-y-4">
              <div className="text-center text-sm text-slate-600 mb-4">Enter the 6-digit code from your app.</div>
-             <input className="w-full border rounded p-2 text-center tracking-widest text-lg" placeholder="000000" maxLength={6} value={token} onChange={e => setToken(e.target.value)} required />
-             {error && <div className="bg-red-50 text-red-600 text-sm p-2 rounded">{error}</div>}
-             <button type="submit" className="w-full bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700">Verify</button>
+             <input 
+                className="w-full border border-slate-300 rounded-md p-2 text-center tracking-widest text-lg focus:ring-2 focus:ring-indigo-500 outline-none" 
+                placeholder="000 000" 
+                maxLength={6} 
+                value={token} 
+                onChange={e => setToken(e.target.value)} 
+                required 
+            />
+             {error && <div className="bg-red-50 text-red-600 text-sm p-2 rounded border border-red-100 text-center">{error}</div>}
+             <button type="submit" className="w-full bg-indigo-600 text-white py-2 rounded-md hover:bg-indigo-700 transition">Verify</button>
            </form>
         )}
       </div>
