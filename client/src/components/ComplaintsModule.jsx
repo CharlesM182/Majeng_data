@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AlertCircle, Plus, MessageSquare, X, Paperclip, FileText } from 'lucide-react';
 
-// --- UPDATED COMPLAINTS MODULE (Safe Render) ---
 const ComplaintsModule = ({ complaints, policies, onUpdateComplaint, onAddComplaint, currentUser }) => {
   const [showForm, setShowForm] = useState(false);
   const [newComplaint, setNewComplaint] = useState({ policyId: '', subject: '', priority: 'Low' });
@@ -17,7 +16,7 @@ const ComplaintsModule = ({ complaints, policies, onUpdateComplaint, onAddCompla
 
     // Split by newlines to handle the log format
     return text.split('\n').filter(line => line.trim() !== '').map((line, index) => {
-      // Check for attachment pattern
+      // Check for attachment pattern created by App.jsx
       const attachmentMatch = line.match(/\(Attachment: (https?:\/\/[^\s)]+)\)/);
       
       if (attachmentMatch) {
@@ -75,6 +74,7 @@ const ComplaintsModule = ({ complaints, policies, onUpdateComplaint, onAddCompla
   };
 
   // Sync selectedTicket with the latest data from props when props change
+  // This ensures the modal updates immediately after adding a comment
   useEffect(() => {
     if (selectedTicket) {
         const updatedTicket = complaints.find(t => t.id === selectedTicket.id);

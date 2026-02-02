@@ -1,5 +1,3 @@
-// --- HELPER FUNCTIONS ---
-
 export const parseDetailsFromID = (idNumber) => {
   if (!idNumber || idNumber.length !== 13 || isNaN(idNumber)) {
     return { age: '', gender: '' };
@@ -22,13 +20,13 @@ export const parseDetailsFromID = (idNumber) => {
     age--;
   }
 
+  // Gender digit is index 6 (7th digit). 0-4 Female, 5-9 Male
   const genderCode = parseInt(idNumber.substring(6, 10));
   const gender = genderCode < 5000 ? 'Female' : 'Male';
 
   return { age, gender };
 };
 
-// --- DATA MAPPERS ---
 export const mapPolicyFromDB = (p) => ({
   id: p.policy_number,
   name: p.applicant_name,
@@ -54,7 +52,10 @@ export const mapClaimFromDB = (c) => ({
   status: c.status,
   date: c.date_filed ? c.date_filed.split('T')[0] : '',
   settlementFormUrl: c.settlement_form_url,
-  rejectionReason: c.rejection_reason
+  rejectionReason: c.rejection_reason,
+  // Timestamps
+  recordedAt: c.created_at ? new Date(c.created_at).toLocaleString() : '',
+  resolvedAt: c.resolved_at ? new Date(c.resolved_at).toLocaleString() : null
 });
 
 export const mapComplaintFromDB = (t) => ({
@@ -65,5 +66,8 @@ export const mapComplaintFromDB = (t) => ({
   priority: t.priority,
   status: t.status,
   comments: t.comments,
-  date: t.date_logged ? t.date_logged.split('T')[0] : ''
+  date: t.date_logged ? t.date_logged.split('T')[0] : '',
+  // Timestamps
+  recordedAt: t.created_at ? new Date(t.created_at).toLocaleString() : '',
+  resolvedAt: t.resolved_at ? new Date(t.resolved_at).toLocaleString() : null
 });

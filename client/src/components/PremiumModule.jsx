@@ -1,16 +1,22 @@
 import React, { useState } from 'react';
-import { Search, DollarSign, FileText, CheckCircle, X, ArrowUpRight, ArrowDownLeft, Calendar } from 'lucide-react';
-import { calculateNextDueDate, generateAccountStatement } from '../utils/paymentLogic';
+import { Search, DollarSign, FileText, CheckCircle, X, ArrowUpRight, ArrowDownLeft, Calendar, FileSpreadsheet } from 'lucide-react';
+import { calculateNextDueDate, generateAccountStatement, generateMonthlyStatement } from '../utils/paymentLogic';
 
 const PremiumModule = ({ policies, onProcessPayment }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [statementPolicy, setStatementPolicy] = useState(null);
   
-  // Payment Modal State
+  // State for Modals & Views
+  const [statementPolicy, setStatementPolicy] = useState(null); // Full History View
+  const [monthlyPolicy, setMonthlyPolicy] = useState(null); // Monthly Statement View
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [paymentPolicy, setPaymentPolicy] = useState(null);
+  
+  // Payment Form State
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentDate, setPaymentDate] = useState('');
+
+  // Month Picker State (Default to current month YYYY-MM)
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
 
   // Filter Active Policies
   const activePolicies = policies.filter(p => p.status === 'Active');
@@ -21,9 +27,11 @@ const PremiumModule = ({ policies, onProcessPayment }) => {
     (p.idNumber && p.idNumber.includes(searchTerm))
   );
 
+  // --- HANDLERS ---
+
   const openPaymentModal = (policy) => {
       setPaymentPolicy(policy);
-      setPaymentAmount(policy.premium); // Default to premium amount
+      setPaymentAmount(policy.premium); // Default to standard premium
       setPaymentDate(new Date().toISOString().split('T')[0]); // Default to today
       setPaymentModalOpen(true);
   };
@@ -31,14 +39,22 @@ const PremiumModule = ({ policies, onProcessPayment }) => {
   const handleConfirmPayment = () => {
       if (!paymentPolicy || !paymentAmount || !paymentDate) return;
       
-      // Pass the specific details to the parent handler
+      // Pass details to parent App handler
       onProcessPayment(paymentPolicy.id, parseFloat(paymentAmount), paymentDate);
       
       setPaymentModalOpen(false);
       setPaymentPolicy(null);
   };
 
-  const statementData = statementPolicy ? generateAccountStatement(statementPolicy) : [];
+  // --- DATA GENERATION ---
+
+  // 1. Full History Data
+  const fullStatementData = statementPolicy ? generateAccountStatement(statementPolicy) : [];
+  
+  // 2. Monthly Statement Data (Responsive to selectedMonth)
+  const monthlyData = monthlyPolicy 
+    ? generateMonthlyStatement(monthlyPolicy, selectedMonth ? new Date(selectedMonth + "-01") : new Date()) 
+    : null;
 
   return (
     <div className="space-y-6">
@@ -65,8 +81,9 @@ const PremiumModule = ({ policies, onProcessPayment }) => {
         </div>
       </div>
 
-      {/* POLICY LIST TABLE */}
-      {!statementPolicy && (
+      {/* MAIN LIST: POLICY TABLE */}
+      {/* Only show if no specific statement view is open */}
+      {!statementPolicy && !monthlyPolicy && (
         <div className="bg-white rounded-lg shadow-sm overflow-hidden border border-slate-200">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
@@ -101,16 +118,23 @@ const PremiumModule = ({ policies, onProcessPayment }) => {
                                     <button 
                                         onClick={() => openPaymentModal(policy)}
                                         className="bg-green-600 text-white px-3 py-1.5 rounded text-xs hover:bg-green-700 flex items-center shadow-sm"
-                                        title="Capture Payment"
+                                        title="Pay"
                                     >
                                         <DollarSign className="w-3 h-3 mr-1" /> Pay
                                     </button>
                                     <button 
+                                        onClick={() => { setMonthlyPolicy(policy); setSelectedMonth(new Date().toISOString().slice(0, 7)); }}
+                                        className="bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1.5 rounded text-xs hover:bg-blue-100 flex items-center shadow-sm"
+                                        title="Monthly Statement"
+                                    >
+                                        <FileSpreadsheet className="w-3 h-3 mr-1" /> Month Stmt
+                                    </button>
+                                    <button 
                                         onClick={() => setStatementPolicy(policy)}
                                         className="bg-white text-slate-600 border border-slate-300 px-3 py-1.5 rounded text-xs hover:bg-slate-50 flex items-center shadow-sm"
-                                        title="View Account Statement"
+                                        title="Full History"
                                     >
-                                        <FileText className="w-3 h-3 mr-1" /> Statement
+                                        <FileText className="w-3 h-3 mr-1" /> History
                                     </button>
                                 </td>
                             </tr>
@@ -123,7 +147,7 @@ const PremiumModule = ({ policies, onProcessPayment }) => {
         </div>
       )}
 
-      {/* PAYMENT MODAL */}
+      {/* MODAL: CAPTURE PAYMENT */}
       {paymentModalOpen && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -168,22 +192,17 @@ const PremiumModule = ({ policies, onProcessPayment }) => {
           </div>
       )}
 
-      {/* ACCOUNT STATEMENT VIEW */}
+      {/* VIEW: FULL HISTORY STATEMENT */}
       {statementPolicy && (
         <div className="bg-white rounded-lg shadow-lg border border-indigo-100 overflow-hidden animation-fade-in">
             <div className="p-4 bg-indigo-50 border-b border-indigo-100 flex justify-between items-center">
                 <div>
                     <h3 className="font-bold text-indigo-900 flex items-center">
-                        <FileText className="w-4 h-4 mr-2"/> Account Statement: {statementPolicy.name}
+                        <FileText className="w-4 h-4 mr-2"/> Full Transaction History: {statementPolicy.name}
                     </h3>
                     <p className="text-xs text-indigo-700 mt-1">Policy: {statementPolicy.id} | Monthly Premium: R {statementPolicy.premium}</p>
                 </div>
-                <button 
-                    onClick={() => setStatementPolicy(null)} 
-                    className="text-indigo-400 hover:text-indigo-700 p-1"
-                >
-                    <X className="w-5 h-5" />
-                </button>
+                <button onClick={() => setStatementPolicy(null)} className="text-indigo-400 hover:text-indigo-700 p-1"><X className="w-5 h-5" /></button>
             </div>
             
             <div className="max-h-[500px] overflow-y-auto">
@@ -197,7 +216,7 @@ const PremiumModule = ({ policies, onProcessPayment }) => {
                         </tr>
                     </thead>
                     <tbody className="divide-y">
-                        {statementData.map((row, index) => (
+                        {fullStatementData.map((row, index) => (
                             <tr key={index} className="hover:bg-slate-50">
                                 <td className="p-3 font-mono text-slate-600 text-xs">{row.date}</td>
                                 <td className="p-3 text-slate-700 flex items-center">
@@ -220,8 +239,84 @@ const PremiumModule = ({ policies, onProcessPayment }) => {
                     onClick={() => setStatementPolicy(null)}
                     className="text-sm text-slate-500 hover:text-slate-800 underline"
                 >
-                    Close Statement
+                    Close
                 </button>
+            </div>
+        </div>
+      )}
+
+      {/* VIEW: MONTHLY STATEMENT */}
+      {monthlyPolicy && monthlyData && (
+        <div className="bg-white rounded-lg shadow-lg border border-blue-200 overflow-hidden animation-fade-in">
+             <div className="p-6 border-b bg-blue-50 flex justify-between items-start">
+                 <div>
+                    <h2 className="text-2xl font-bold text-blue-900">Monthly Statement</h2>
+                    <p className="text-blue-700">{monthlyData.monthName}</p>
+                    <p className="text-sm text-slate-500 mt-1">{monthlyPolicy.name} ({monthlyPolicy.id})</p>
+                 </div>
+                 <button onClick={() => setMonthlyPolicy(null)} className="text-blue-400 hover:text-blue-700 p-1"><X className="w-6 h-6" /></button>
+             </div>
+
+             <div className="p-6">
+                {/* Month Picker Control */}
+                <div className="flex items-center gap-3 mb-6 bg-white p-3 rounded border border-blue-100 shadow-sm w-fit">
+                    <label className="text-xs font-bold text-blue-800 uppercase tracking-wide">Select Period:</label>
+                    <input 
+                        type="month" 
+                        className="border rounded px-2 py-1 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={selectedMonth}
+                        onChange={(e) => setSelectedMonth(e.target.value)}
+                    />
+                </div>
+
+                {/* Opening Balance */}
+                <div className="flex justify-between items-center p-4 bg-slate-50 rounded mb-4 border border-slate-100">
+                    <span className="font-bold text-slate-600">Opening Balance</span>
+                    <span className={`font-mono font-bold ${monthlyData.openingBalance > 0 ? 'text-red-600' : 'text-slate-800'}`}>
+                        R {monthlyData.openingBalance.toFixed(2)}
+                    </span>
+                </div>
+
+                {/* Activities Table */}
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Month Activities</h4>
+                <div className="border rounded overflow-hidden mb-4">
+                    <table className="w-full text-left text-sm">
+                        <thead className="bg-slate-50 border-b">
+                            <tr>
+                                <th className="p-3">Date</th>
+                                <th className="p-3">Description</th>
+                                <th className="p-3 text-right">Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                            {monthlyData.activities.length === 0 ? (
+                                <tr><td colSpan="3" className="p-4 text-center text-slate-400 italic">No activity this month.</td></tr>
+                            ) : (
+                                monthlyData.activities.map((row, idx) => (
+                                    <tr key={idx}>
+                                        <td className="p-3 font-mono text-xs">{row.date}</td>
+                                        <td className="p-3">{row.description}</td>
+                                        <td className={`p-3 text-right ${row.isCredit ? 'text-green-600' : 'text-orange-600'}`}>
+                                            {row.isCredit ? '-' : ''} R {Math.abs(row.amount).toFixed(2)}
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+
+                {/* Closing Balance */}
+                <div className="flex justify-between items-center p-4 bg-blue-50 rounded border border-blue-200">
+                    <span className="font-bold text-blue-900">Closing Balance</span>
+                    <span className={`font-mono text-xl font-bold ${monthlyData.closingBalance > 0 ? 'text-red-600' : 'text-blue-900'}`}>
+                        R {monthlyData.closingBalance.toFixed(2)}
+                    </span>
+                </div>
+             </div>
+
+             <div className="p-4 bg-slate-50 border-t flex justify-end">
+                <button onClick={() => setMonthlyPolicy(null)} className="bg-blue-600 text-white px-6 py-2 rounded shadow hover:bg-blue-700">Close</button>
             </div>
         </div>
       )}

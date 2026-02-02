@@ -23,7 +23,7 @@ const UnderwritingModule = ({ onCreatePolicy }) => {
     coverage: 100000,
     history: 'clean',
     // Beneficiary Fields
-    beneficiaryName: 'none',
+    beneficiaryName: '',
     beneficiaryId: '',
     beneficiaryPhone: '',
     beneficiaryEmail: ''

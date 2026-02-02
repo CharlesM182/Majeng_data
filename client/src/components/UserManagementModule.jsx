@@ -48,7 +48,7 @@ const UserManagementModule = ({ currentUser }) => {
             <form onSubmit={handleCreate} className="space-y-4">
                 <div className="bg-blue-50 p-4 rounded text-sm text-blue-800 border border-blue-200">
                     <p className="font-bold flex items-center"><Shield className="w-4 h-4 mr-2"/> Admin Access Only</p>
-                    <p className="mt-1">Use this form to onboard new staff. The system will automatically generate a secure 5-digit username (3 vowels + 2 numbers).</p>
+                    <p className="mt-1">Use this form to onboard new staff. The system will automatically generate a secure 5-digit username.</p>
                 </div>
 
                 <div>

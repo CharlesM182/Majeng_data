@@ -1,0 +1,2 @@
+ALTER TABLE claims ADD COLUMN resolved_at TIMESTAMP;
+ALTER TABLE complaints ADD COLUMN resolved_at TIMESTAMP;
