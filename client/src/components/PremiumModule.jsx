@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { Search, DollarSign, FileText, CheckCircle, X, ArrowUpRight, ArrowDownLeft, Calendar, FileSpreadsheet } from 'lucide-react';
+import { Search, DollarSign, FileText, CheckCircle, X, ArrowUpRight, ArrowDownLeft, Calendar, FileSpreadsheet, Download } from 'lucide-react';
 import { calculateNextDueDate, generateAccountStatement, generateMonthlyStatement } from '../utils/paymentLogic';
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable"; // Changed import style
 
 const PremiumModule = ({ policies, onProcessPayment }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -39,19 +41,108 @@ const PremiumModule = ({ policies, onProcessPayment }) => {
   const handleConfirmPayment = () => {
       if (!paymentPolicy || !paymentAmount || !paymentDate) return;
       
-      // Pass details to parent App handler
+      // Pass the specific details to the parent handler
       onProcessPayment(paymentPolicy.id, parseFloat(paymentAmount), paymentDate);
       
       setPaymentModalOpen(false);
       setPaymentPolicy(null);
   };
 
-  // --- DATA GENERATION ---
+  // --- PDF GENERATOR ---
+  const downloadPdf = async (title, data, policy, extraDetails = {}) => {
+    const doc = new jsPDF();
 
-  // 1. Full History Data
+    // 1. Add Logo (Async load)
+    try {
+        const img = new Image();
+        img.src = '/logo.png'; // Looks for logo.png in public folder of client
+        await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+        });
+        // Add image at top-left: x=14, y=10, w=50, h=30 (approx)
+        doc.addImage(img, 'PNG', 14, 10, 50, 30);
+    } catch (e) {
+        console.warn("Logo not loaded - continuing without it");
+    }
+
+    // 2. Header Information
+    doc.setFontSize(22);
+    doc.setTextColor(22, 163, 74); // Green color
+    doc.text("Majeng Life", 195, 20, null, null, "right");
+    
+    doc.setFontSize(16);
+    doc.setTextColor(80);
+    doc.text(title, 195, 30, null, null, "right");
+
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Generated: ${new Date().toLocaleDateString()}`, 195, 38, null, null, "right");
+
+    // 3. Policy Details
+    doc.setFontSize(11);
+    doc.setTextColor(0);
+    doc.text(`Policy Holder: ${policy.name}`, 14, 50);
+    doc.text(`Policy Number: ${policy.id}`, 14, 56);
+    
+    let startY = 65;
+    
+    // Add specific monthly details if present
+    if (extraDetails.monthName) {
+        doc.text(`Statement Period: ${extraDetails.monthName}`, 14, 62);
+        
+        // Opening Balance Box
+        doc.setFillColor(241, 245, 249);
+        doc.rect(14, 68, 180, 10, 'F');
+        doc.setFont("helvetica", "bold");
+        doc.text(`Opening Balance: R ${extraDetails.openingBalance.toFixed(2)}`, 20, 75);
+        startY = 85;
+    }
+
+    // 4. Table Generation
+    const tableColumn = ["Date", "Description", "Debit (-)", "Credit (+)", "Balance"];
+    const tableRows = [];
+
+    data.forEach(row => {
+        const debit = !row.isCredit ? `R ${Math.abs(row.amount).toFixed(2)}` : "-";
+        const credit = row.isCredit ? `R ${Math.abs(row.amount).toFixed(2)}` : "-";
+        const balance = `R ${row.balance.toFixed(2)}`;
+        
+        tableRows.push([
+            row.date,
+            row.description,
+            debit,
+            credit,
+            balance
+        ]);
+    });
+
+    // FIX: Call autoTable directly as a function
+    autoTable(doc, {
+        head: [tableColumn],
+        body: tableRows,
+        startY: startY,
+        theme: 'striped',
+        headStyles: { fillColor: [22, 163, 74] }, // Matches Majeng green
+    });
+
+    // 5. Closing Balance (For Monthly Statements)
+    if (extraDetails.closingBalance !== undefined) {
+        // Use doc.lastAutoTable.finalY to find where the table ended
+        const finalY = doc.lastAutoTable.finalY + 10;
+        doc.setFillColor(241, 245, 249);
+        doc.rect(14, finalY, 180, 10, 'F');
+        doc.setFont("helvetica", "bold");
+        doc.text(`Closing Balance: R ${extraDetails.closingBalance.toFixed(2)}`, 20, finalY + 7);
+    }
+
+    // 6. Save
+    doc.save(`${title.replace(/\s/g, '_')}_${policy.name}.pdf`);
+  };
+
+  // --- DATA GENERATION ---
   const fullStatementData = statementPolicy ? generateAccountStatement(statementPolicy) : [];
   
-  // 2. Monthly Statement Data (Responsive to selectedMonth)
   const monthlyData = monthlyPolicy 
     ? generateMonthlyStatement(monthlyPolicy, selectedMonth ? new Date(selectedMonth + "-01") : new Date()) 
     : null;
@@ -81,8 +172,7 @@ const PremiumModule = ({ policies, onProcessPayment }) => {
         </div>
       </div>
 
-      {/* MAIN LIST: POLICY TABLE */}
-      {/* Only show if no specific statement view is open */}
+      {/* POLICY LIST TABLE */}
       {!statementPolicy && !monthlyPolicy && (
         <div className="bg-white rounded-lg shadow-sm overflow-hidden border border-slate-200">
           <div className="overflow-x-auto">
@@ -147,7 +237,7 @@ const PremiumModule = ({ policies, onProcessPayment }) => {
         </div>
       )}
 
-      {/* MODAL: CAPTURE PAYMENT */}
+      {/* PAYMENT MODAL */}
       {paymentModalOpen && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -192,7 +282,7 @@ const PremiumModule = ({ policies, onProcessPayment }) => {
           </div>
       )}
 
-      {/* VIEW: FULL HISTORY STATEMENT */}
+      {/* FULL HISTORY VIEW */}
       {statementPolicy && (
         <div className="bg-white rounded-lg shadow-lg border border-indigo-100 overflow-hidden animation-fade-in">
             <div className="p-4 bg-indigo-50 border-b border-indigo-100 flex justify-between items-center">
@@ -202,7 +292,15 @@ const PremiumModule = ({ policies, onProcessPayment }) => {
                     </h3>
                     <p className="text-xs text-indigo-700 mt-1">Policy: {statementPolicy.id} | Monthly Premium: R {statementPolicy.premium}</p>
                 </div>
-                <button onClick={() => setStatementPolicy(null)} className="text-indigo-400 hover:text-indigo-700 p-1"><X className="w-5 h-5" /></button>
+                <div className="flex gap-2">
+                    <button 
+                        onClick={() => downloadPdf("Full Account Statement", fullStatementData, statementPolicy)}
+                        className="text-indigo-600 hover:text-indigo-800 flex items-center text-xs font-bold mr-4"
+                    >
+                        <Download className="w-4 h-4 mr-1"/> Download PDF
+                    </button>
+                    <button onClick={() => setStatementPolicy(null)} className="text-indigo-400 hover:text-indigo-700 p-1"><X className="w-5 h-5" /></button>
+                </div>
             </div>
             
             <div className="max-h-[500px] overflow-y-auto">
@@ -245,7 +343,7 @@ const PremiumModule = ({ policies, onProcessPayment }) => {
         </div>
       )}
 
-      {/* VIEW: MONTHLY STATEMENT */}
+      {/* MONTHLY STATEMENT VIEW */}
       {monthlyPolicy && monthlyData && (
         <div className="bg-white rounded-lg shadow-lg border border-blue-200 overflow-hidden animation-fade-in">
              <div className="p-6 border-b bg-blue-50 flex justify-between items-start">
@@ -254,7 +352,19 @@ const PremiumModule = ({ policies, onProcessPayment }) => {
                     <p className="text-blue-700">{monthlyData.monthName}</p>
                     <p className="text-sm text-slate-500 mt-1">{monthlyPolicy.name} ({monthlyPolicy.id})</p>
                  </div>
-                 <button onClick={() => setMonthlyPolicy(null)} className="text-blue-400 hover:text-blue-700 p-1"><X className="w-6 h-6" /></button>
+                 <div className="flex gap-2">
+                    <button 
+                        onClick={() => downloadPdf("Monthly Statement", monthlyData.activities, monthlyPolicy, { 
+                            monthName: monthlyData.monthName,
+                            openingBalance: monthlyData.openingBalance,
+                            closingBalance: monthlyData.closingBalance
+                        })}
+                        className="bg-white text-blue-600 border border-blue-200 px-3 py-1.5 rounded text-xs hover:bg-blue-50 flex items-center shadow-sm font-bold mr-2"
+                    >
+                        <Download className="w-4 h-4 mr-2"/> Download PDF
+                    </button>
+                    <button onClick={() => setMonthlyPolicy(null)} className="text-blue-400 hover:text-blue-700 p-1"><X className="w-6 h-6" /></button>
+                 </div>
              </div>
 
              <div className="p-6">
@@ -286,11 +396,12 @@ const PremiumModule = ({ policies, onProcessPayment }) => {
                                 <th className="p-3">Date</th>
                                 <th className="p-3">Description</th>
                                 <th className="p-3 text-right">Amount</th>
+                                <th className="p-3 text-right">Balance</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y">
                             {monthlyData.activities.length === 0 ? (
-                                <tr><td colSpan="3" className="p-4 text-center text-slate-400 italic">No activity this month.</td></tr>
+                                <tr><td colSpan="4" className="p-4 text-center text-slate-400 italic">No activity this month.</td></tr>
                             ) : (
                                 monthlyData.activities.map((row, idx) => (
                                     <tr key={idx}>
@@ -299,6 +410,7 @@ const PremiumModule = ({ policies, onProcessPayment }) => {
                                         <td className={`p-3 text-right ${row.isCredit ? 'text-green-600' : 'text-orange-600'}`}>
                                             {row.isCredit ? '-' : ''} R {Math.abs(row.amount).toFixed(2)}
                                         </td>
+                                        <td className="p-3 text-right font-mono text-slate-600">R {row.balance.toFixed(2)}</td>
                                     </tr>
                                 ))
                             )}
