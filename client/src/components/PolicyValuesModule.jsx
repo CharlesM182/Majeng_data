@@ -6,7 +6,10 @@ const PolicyValuesModule = ({ policies }) => {
   const [activeSubTab, setActiveSubTab] = useState('projection');
   const [selectedPolicyId, setSelectedPolicyId] = useState('');
   const [projection, setProjection] = useState(null);
+  
+  // State for Portfolio Valuation
   const [portfolioValuation, setPortfolioValuation] = useState([]);
+  const [valuationYears, setValuationYears] = useState([]);
 
   const handleGenerateProjection = () => {
     const policy = policies.find(p => p.id === selectedPolicyId);
@@ -30,17 +33,32 @@ const PolicyValuesModule = ({ policies }) => {
   useEffect(() => {
     if (activeSubTab === 'valuation') {
       const activePolicies = policies.filter(p => p.status === 'Active');
+      const currentYear = new Date().getFullYear();
       
+      // Generate array of years: [Current, +1, +2, +3, +4, +5]
+      const years = Array.from({ length: 6 }, (_, i) => currentYear + i);
+      setValuationYears(years);
+
       const valuationData = activePolicies.map(policy => {
         const inceptionYear = new Date(policy.inceptionDate).getFullYear();
-        const currentYear = new Date().getFullYear();
-        const duration = Math.max(0, currentYear - inceptionYear);
-        const currentValue = calculateSinglePolicyValue(policy, duration);
-        return { ...policy, duration, currentValue };
+        const baseDuration = Math.max(0, currentYear - inceptionYear);
+        
+        // Calculate value for each year in the range
+        const yearlyValues = years.map((year, i) => {
+            const duration = baseDuration + i;
+            return calculateSinglePolicyValue(policy, duration);
+        });
+
+        return { ...policy, yearlyValues };
       });
       setPortfolioValuation(valuationData);
     }
   }, [activeSubTab, policies]);
+
+  // Helper to calculate column totals
+  const calculateColumnTotal = (colIndex) => {
+    return portfolioValuation.reduce((acc, curr) => acc + (curr.yearlyValues[colIndex] || 0), 0);
+  };
 
   return (
     <div className="space-y-6">
@@ -78,6 +96,7 @@ const PolicyValuesModule = ({ policies }) => {
                     </button>
                 </div>
             </div>
+
             {projection && (
                 <div className="bg-white rounded-lg shadow-sm overflow-hidden border">
                     <div className="p-4 bg-purple-50 border-b border-purple-100 flex justify-between items-center">
@@ -87,7 +106,12 @@ const PolicyValuesModule = ({ policies }) => {
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm">
                             <thead className="bg-slate-50 text-slate-600 uppercase text-xs">
-                                <tr><th className="p-3">Year (t)</th><th className="p-3">Age</th><th className="p-3">Term Remaining</th><th className="p-3 text-right">Policy Value E(L)</th></tr>
+                                <tr>
+                                    <th className="p-3">Year (t)</th>
+                                    <th className="p-3">Age</th>
+                                    <th className="p-3">Term Remaining</th>
+                                    <th className="p-3 text-right">Policy Value E(L)</th>
+                                </tr>
                             </thead>
                             <tbody className="divide-y">
                                 {projection.results.map((row) => (
@@ -95,7 +119,9 @@ const PolicyValuesModule = ({ policies }) => {
                                         <td className="p-3 font-mono">{row.year}</td>
                                         <td className="p-3">{row.age}</td>
                                         <td className="p-3">{row.termRemaining}</td>
-                                        <td className={`p-3 text-right font-mono font-bold ${row.policyValue >= 0 ? 'text-green-600' : 'text-red-600'}`}>R {row.policyValue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                                        <td className={`p-3 text-right font-mono font-bold ${row.policyValue >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                            R {row.policyValue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -109,16 +135,46 @@ const PolicyValuesModule = ({ policies }) => {
       {activeSubTab === 'valuation' && (
         <div className="bg-white rounded-lg shadow-sm overflow-hidden border">
            <div className="p-4 bg-purple-50 border-b border-purple-100 flex justify-between items-center">
-             <h3 className="font-bold text-purple-900">Portfolio Valuation Snapshot ({new Date().getFullYear()})</h3>
-             <div className="text-sm text-purple-800 font-medium">Total Reserve: R {portfolioValuation.reduce((acc, curr) => acc + (curr.currentValue || 0), 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+             <h3 className="font-bold text-purple-900">Portfolio Valuation Snapshot ({valuationYears[0]} - {valuationYears[valuationYears.length - 1]})</h3>
+             {/* Total Reserve Summary Removed here as it is now in column headers */}
            </div>
            <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-slate-600 uppercase text-xs"><tr><th className="p-3">Policy ID</th><th className="p-3">Holder</th><th className="p-3 text-right">Current Reserve E(L)</th></tr></thead>
+              <thead className="bg-slate-800 text-white uppercase text-xs">
+                <tr>
+                    <th className="p-3">Policy ID</th>
+                    <th className="p-3">Holder</th>
+                    {/* Dynamic Headers for Years with Totals */}
+                    {valuationYears.map((year, index) => {
+                        const total = calculateColumnTotal(index);
+                        return (
+                            <th key={year} className="p-3 text-right min-w-[120px]">
+                                <div className="text-slate-300 mb-1">{year}</div>
+                                <div className={`font-bold ${total >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                    R {total.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}
+                                </div>
+                            </th>
+                        );
+                    })}
+                </tr>
+              </thead>
               <tbody className="divide-y">
-                {portfolioValuation.length === 0 ? <tr><td colSpan="3" className="p-6 text-center text-slate-500">No active policies found.</td></tr> : portfolioValuation.map((row) => (
-                    <tr key={row.id} className="hover:bg-slate-50"><td className="p-3">{row.id}</td><td className="p-3">{row.name}</td><td className={`p-3 text-right font-bold ${row.currentValue >= 0 ? 'text-green-600' : 'text-red-600'}`}>R {row.currentValue ? row.currentValue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0.00'}</td></tr>
-                ))}
+                {portfolioValuation.length === 0 ? (
+                    <tr><td colSpan={2 + valuationYears.length} className="p-6 text-center text-slate-500">No active policies found.</td></tr>
+                ) : (
+                    portfolioValuation.map((row) => (
+                        <tr key={row.id} className="hover:bg-slate-50">
+                            <td className="p-3 font-mono text-xs">{row.id}</td>
+                            <td className="p-3">{row.name}</td>
+                            {/* Render columns for each year */}
+                            {row.yearlyValues.map((val, idx) => (
+                                <td key={idx} className={`p-3 text-right font-mono font-bold ${val >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                    R {val.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                </td>
+                            ))}
+                        </tr>
+                    ))
+                )}
               </tbody>
             </table>
           </div>

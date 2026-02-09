@@ -1,19 +1,34 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  Activity, 
-  Calculator, 
+  Shield, 
   Users, 
+  FileText, 
   DollarSign, 
-  TrendingUp, 
   AlertCircle, 
   CheckCircle, 
+  XCircle, 
+  Activity, 
+  Plus, 
+  Calculator, 
+  TrendingUp, 
+  Archive, 
+  Upload, 
+  RefreshCw, 
+  Lock, 
+  LogOut, 
   ClipboardList, 
-  LogOut,
-  UserPlus 
+  MessageSquare, 
+  Paperclip,
+  ArrowUpRight, 
+  ArrowDownLeft, 
+  Calendar, 
+  X,
+  UserPlus // <--- ADDED THIS IMPORT to fix the crash
 } from 'lucide-react';
+import { jsPDF } from "jspdf";
 
-// --- IMPORT EXTERNAL MODULES ---
-import LoginScreen from './components/LoginScreen';
+// --- IMPORT YOUR EXTERNAL MODULES ---
+import LoginScreen from './components/LoginScreen'; 
 import UnderwritingModule from './components/UnderwritingModule'; 
 import PremiumModule from './components/PremiumModule';
 import AdminModule from './components/AdminModule';
@@ -24,6 +39,7 @@ import AuditLogModule from './components/AuditLogModule';
 import UserManagementModule from './components/UserManagementModule';
 
 // --- IMPORT UTILS ---
+import { calculateSinglePolicyValue } from './utils/actuarial';
 import { mapPolicyFromDB, mapClaimFromDB, mapComplaintFromDB } from './utils/helpers';
 import { calculateNextDueDate } from './utils/paymentLogic';
 
@@ -55,7 +71,7 @@ const App = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState(null); 
 
-  // --- 1. DATA LOADING ---
+  // 1. DATA LOADING
   const refreshData = async () => {
     try {
       const [pRes, cRes, tRes, payRes] = await Promise.all([
@@ -67,7 +83,6 @@ const App = () => {
       
       const payments = await payRes.json();
       
-      // Map Policies and inject payment history for the ledger
       setPolicies((await pRes.json()).map(p => {
           const mapped = mapPolicyFromDB(p);
           mapped.paymentHistory = payments
@@ -92,7 +107,6 @@ const App = () => {
     }
   };
 
-  // Poll for data updates when logged in
   useEffect(() => {
     if (isLoggedIn) {
       refreshData();
@@ -101,7 +115,37 @@ const App = () => {
     }
   }, [isLoggedIn]);
 
-  // --- 2. HANDLERS ---
+  // --- 2. DASHBOARD STATS CALCULATION ---
+  const dashboardStats = useMemo(() => {
+    const activePolicies = policies.filter(p => p.status === 'Active');
+    const pendingClaims = claims.filter(c => c.status === 'Pending');
+    const currentYear = new Date().getFullYear();
+
+    const stats = {
+      activeCount: activePolicies.length,
+      pendingClaimsCount: pendingClaims.length,
+      totalInsuredValue: 0,
+      currentReserve: 0
+    };
+
+    activePolicies.forEach(policy => {
+      // 1. Sum Assured
+      stats.totalInsuredValue += (parseFloat(policy.coverage) || 0);
+
+      // 2. Reserve Calculation
+      // Only calculate if inception date is valid
+      if (policy.inceptionDate) {
+          const inceptionYear = new Date(policy.inceptionDate).getFullYear();
+          const duration = Math.max(0, currentYear - inceptionYear);
+          const reserve = calculateSinglePolicyValue(policy, duration);
+          stats.currentReserve += (reserve || 0);
+      }
+    });
+
+    return stats;
+  }, [policies, claims]);
+
+  // --- 3. HANDLERS ---
 
   const handleLogin = (userData) => {
     setIsLoggedIn(true);
@@ -138,15 +182,15 @@ const App = () => {
   };
 
   const handleFetchPolicyDocuments = async (policyId) => {
-    try {
-        const res = await fetch(`${API_BASE_URL}/policies/${policyId}/documents`);
-        if (res.ok) {
-            return await res.json();
-        }
-    } catch (e) {
-        console.error("Error fetching docs", e);
-    }
-    return [];
+      try {
+          const res = await fetch(`${API_BASE_URL}/policies/${policyId}/documents`);
+          if (res.ok) {
+              return await res.json();
+          }
+      } catch (e) {
+          console.error("Error fetching docs", e);
+      }
+      return [];
   };
 
   const handleUploadPolicyDoc = async (id, file) => {
@@ -154,11 +198,10 @@ const App = () => {
     try {
         const formData = new FormData();
         formData.append('file', file);
-        formData.append('userId', currentUser?.id); // For audit
+        formData.append('userId', currentUser?.id); 
         
         await fetch(`${API_BASE_URL}/policies/${id}/documents`, { method: 'POST', body: formData });
         
-        // Don't alert every time, just refresh
         refreshData();
     } catch(e) {
         console.error(e);
@@ -170,12 +213,10 @@ const App = () => {
     const policy = policies.find(p => p.id === id);
     if (!policy) return;
 
-    // Calculate new paid_until date
     const nextDate = calculateNextDueDate(policy.inceptionDate, policy.paidUntil);
     const nextDateStr = nextDate.toISOString().split('T')[0];
 
     try {
-        // 1. Record Payment
         await fetch(`${API_BASE_URL}/payments`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -187,7 +228,6 @@ const App = () => {
             }) 
         });
 
-        // 2. Update Policy Paid Until
         await fetch(`${API_BASE_URL}/policies/${id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -222,8 +262,6 @@ const App = () => {
 
   const handleUpdateClaimStatus = async (id, status, reason, file) => {
     let settlementUrl = null;
-    
-    // Handle Settlement Form Upload
     if (file) {
         const formData = new FormData();
         formData.append('file', file);
@@ -241,14 +279,12 @@ const App = () => {
     if (reason) payload.rejection_reason = reason;
     if (settlementUrl) payload.settlement_form_url = settlementUrl;
 
-    // Update Claim
     await fetch(`${API_BASE_URL}/claims/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
     });
 
-    // If Approved, Move Policy to 'Settled'
     if (status === 'Approved') {
         const claim = claims.find(c => c.id === id);
         if (claim && claim.policyId) {
@@ -259,7 +295,7 @@ const App = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     status: 'Settled', 
-                    policy_doc_url: policy?.policyDocumentUrl, // Preserve existing doc
+                    policy_doc_url: policy?.policyDocumentUrl, 
                     userId: currentUser?.id 
                 })
             });
@@ -280,7 +316,6 @@ const App = () => {
           } catch (e) { alert("File upload failed"); return; }
       }
 
-      // Append new comment with timestamp
       let finalComments = updates.existingComments || "";
       if (updates.newComment || fileUrl) {
           const timestamp = new Date().toLocaleString();
@@ -302,14 +337,14 @@ const App = () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
-        await refreshData();
+        await refreshData(); 
         return true; 
       } catch(e) {
         return false;
       }
   };
 
-  // --- 3. RENDER CONTENT ---
+  // --- 4. RENDER CONTENT ---
   const renderContent = () => {
     switch (activeTab) {
       case 'underwriting': 
@@ -336,11 +371,60 @@ const App = () => {
       case 'audit': return <AuditLogModule />;
       case 'users': return <UserManagementModule currentUser={currentUser} />;
       default: return (
-        <div className="grid grid-cols-1 gap-6">
-          <div className="bg-white p-6 rounded shadow">
-            <h3 className="text-lg font-bold">System Overview</h3>
-            <p>Welcome to Majeng Life Core Admin.</p>
-            {currentUser && <p className="text-sm text-slate-500 mt-2">Logged in as: <strong>{currentUser.username}</strong> ({currentUser.role})</p>}
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-lg shadow-sm border border-slate-200">
+            <h3 className="text-xl font-bold text-slate-800 mb-1">System Dashboard</h3>
+            {currentUser && <p className="text-sm text-slate-500">Welcome, <strong>{currentUser.username}</strong> ({currentUser.role})</p>}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            
+            {/* 1. Active Policies */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
+                <div>
+                    <p className="text-slate-500 uppercase text-xs font-bold tracking-wider mb-2">Active Policies</p>
+                    <div className="text-4xl font-bold text-slate-800">{dashboardStats.activeCount}</div>
+                </div>
+                <div className="mt-4 pt-4 border-t border-slate-50 flex items-center text-green-600 text-sm font-medium">
+                    <Users className="w-4 h-4 mr-1"/> Portfolio Count
+                </div>
+            </div>
+
+            {/* 2. Claims Outstanding */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
+                <div>
+                    <p className="text-slate-500 uppercase text-xs font-bold tracking-wider mb-2">Outstanding Claims</p>
+                    <div className="text-4xl font-bold text-red-600">{dashboardStats.pendingClaimsCount}</div>
+                </div>
+                <div className="mt-4 pt-4 border-t border-slate-50 flex items-center text-red-500 text-sm font-medium">
+                    <AlertCircle className="w-4 h-4 mr-1"/> Action Required
+                </div>
+            </div>
+
+            {/* 3. Total Insured Value */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
+                <div>
+                    <p className="text-slate-500 uppercase text-xs font-bold tracking-wider mb-2">Total Sum Assured</p>
+                    <div className="text-2xl font-bold text-slate-800">R {dashboardStats.totalInsuredValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+                </div>
+                <div className="mt-4 pt-4 border-t border-slate-50 flex items-center text-blue-600 text-sm font-medium">
+                    <Shield className="w-4 h-4 mr-1"/> Total Risk Exposure
+                </div>
+            </div>
+
+             {/* 4. Current Reserve */}
+             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
+                <div>
+                    <p className="text-slate-500 uppercase text-xs font-bold tracking-wider mb-2">Current Reserve</p>
+                    <div className={`text-2xl font-bold ${dashboardStats.currentReserve >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                        R {dashboardStats.currentReserve.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </div>
+                </div>
+                <div className="mt-4 pt-4 border-t border-slate-50 flex items-center text-slate-500 text-sm font-medium">
+                    <TrendingUp className="w-4 h-4 mr-1"/> Actuarial Valuation
+                </div>
+            </div>
+
           </div>
         </div>
       );
@@ -349,7 +433,6 @@ const App = () => {
 
   const NavItem = ({ id, label, icon: Icon, allowedRoles }) => {
     const userRole = currentUser?.role || 'agent'; 
-    // Admin sees all
     if (userRole === 'admin') {
       return (
         <button onClick={() => { setActiveTab(id); setIsMobileMenuOpen(false); }} className={`w-full flex items-center p-3 rounded-lg mb-1 ${activeTab === id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}>
@@ -357,7 +440,6 @@ const App = () => {
         </button>
       );
     }
-    // RBAC Check
     if (allowedRoles && !allowedRoles.includes(userRole)) return null;
 
     return (
@@ -394,7 +476,6 @@ const App = () => {
           <NavItem id="complaints" label="Complaints" icon={CheckCircle} allowedRoles={['agent', 'underwriter']} />
           
           <div className="my-4 border-t border-slate-100"></div>
-          <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 px-3">System</div>
           <NavItem id="audit" label="Audit Logs" icon={ClipboardList} allowedRoles={['admin']} />
           <NavItem id="users" label="User Management" icon={UserPlus} allowedRoles={['admin']} />
         </nav>
